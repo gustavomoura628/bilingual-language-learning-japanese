@@ -16,6 +16,7 @@ older DB."
 
 Run: pytest tests/test_db.py
 """
+
 import os
 import sqlite3
 import sys
@@ -47,7 +48,7 @@ def test_set_status_transitions_update_row_and_return_rowcount_1(conn, status):
 def test_set_status_unknown_lemma_is_noop(conn):
     rowcount = db.set_status(conn, "nonexistent", "known")
     assert rowcount == 0
-    assert db.all_words(conn) == {}   # no row was created
+    assert db.all_words(conn) == {}  # no row was created
 
 
 def test_record_sighting_accumulates_exposures_and_upserts_sightings(conn):
@@ -57,7 +58,7 @@ def test_record_sighting_accumulates_exposures_and_upserts_sightings(conn):
 
     db.record_sighting(conn, wid, ep1, occurrences=2, replacements=2)
     db.record_sighting(conn, wid, ep2, occurrences=3, replacements=3)
-    assert db.all_words(conn)["猫"]["exposures"] == 5   # 2 + 3 across two episodes
+    assert db.all_words(conn)["猫"]["exposures"] == 5  # 2 + 3 across two episodes
 
     # Repeated call for the SAME (word_id, episode_id) pair must aggregate
     # (ON CONFLICT ... SET occurrences=occurrences+excluded.occurrences),
@@ -67,14 +68,14 @@ def test_record_sighting_accumulates_exposures_and_upserts_sightings(conn):
         "SELECT occurrences, replacements FROM sightings WHERE word_id=? AND episode_id=?",
         (wid, ep1),
     ).fetchone()
-    assert (row["occurrences"], row["replacements"]) == (3, 3)   # 2+1, 2+1 -- not 1,1
-    assert db.all_words(conn)["猫"]["exposures"] == 6             # 5 + 1
+    assert (row["occurrences"], row["replacements"]) == (3, 3)  # 2+1, 2+1 -- not 1,1
+    assert db.all_words(conn)["猫"]["exposures"] == 6  # 5 + 1
 
 
 def test_stamp_learned_is_idempotent(conn):
     wid = db.upsert_word(conn, "覚える", "おぼえる", "oboeru", "to memorize", "verb", "e01.ja.srt")
     ep = db.add_episode(conn, "e01.ja.srt", new_words=1, replacements=0)
-    db.record_sighting(conn, wid, ep, occurrences=10, replacements=10)   # exposures -> 10
+    db.record_sighting(conn, wid, ep, occurrences=10, replacements=10)  # exposures -> 10
 
     db.stamp_learned(conn, wid, "e01.ja.srt", threshold=10)
     first = db.all_words(conn)["覚える"]
@@ -91,7 +92,7 @@ def test_stamp_learned_is_idempotent(conn):
     db.stamp_learned(conn, wid, "e02.ja.srt", threshold=10)
     second = db.all_words(conn)["覚える"]
     assert second["learned_at"] == first["learned_at"]
-    assert second["learned_at_episode"] == "e01.ja.srt"   # NOT e02 -- unchanged
+    assert second["learned_at_episode"] == "e01.ja.srt"  # NOT e02 -- unchanged
 
 
 def test_clock_sums_episode_tokens(conn):
@@ -103,7 +104,7 @@ def test_clock_sums_episode_tokens(conn):
 
 def test_touch_last_seen_updates_position(conn):
     wid = db.upsert_word(conn, "猫", "ネコ", "neko", "cat", "noun", "e01.ja.srt")
-    assert db.all_words(conn)["猫"]["last_seen_pos"] == 0   # schema default
+    assert db.all_words(conn)["猫"]["last_seen_pos"] == 0  # schema default
     db.touch_last_seen(conn, wid, 200)
     assert db.all_words(conn)["猫"]["last_seen_pos"] == 200
 
@@ -165,8 +166,8 @@ EPISODES = [
 # invariant (sum of that word's sightings.replacements).
 WORDS = [
     # (lemma, reading, romaji, gloss, pos, exposures)
-    ("覚える", "おぼえる", "oboeru", "to memorize", "verb", 12),   # 4+5+3, crosses 10 at ep3
-    ("迷う",   "まよう",   "mayou", "to hesitate",  "verb", 9),    # 3+3+3, never crosses 10
+    ("覚える", "おぼえる", "oboeru", "to memorize", "verb", 12),  # 4+5+3, crosses 10 at ep3
+    ("迷う", "まよう", "mayou", "to hesitate", "verb", 9),  # 3+3+3, never crosses 10
 ]
 
 # Sightings seeded in episode-id order so the cumulative replay genuinely has
@@ -174,12 +175,12 @@ WORDS = [
 # isolation.
 SIGHTINGS = [
     # (lemma, episode_name, occurrences, replacements)
-    ("覚える", "e01.ja.srt", 5, 4),   # cumulative after e01: 4
-    ("覚える", "e02.ja.srt", 5, 5),   # cumulative after e02: 9  (still under)
-    ("覚える", "e04.ja.srt", 3, 3),   # cumulative after e04: 12 -- CROSSES 10 HERE
-    ("迷う",   "e01.ja.srt", 2, 3),   # cumulative: 3
-    ("迷う",   "e02.ja.srt", 2, 3),   # cumulative: 6
-    ("迷う",   "e04.ja.srt", 2, 3),   # cumulative: 9  -- never reaches 10
+    ("覚える", "e01.ja.srt", 5, 4),  # cumulative after e01: 4
+    ("覚える", "e02.ja.srt", 5, 5),  # cumulative after e02: 9  (still under)
+    ("覚える", "e04.ja.srt", 3, 3),  # cumulative after e04: 12 -- CROSSES 10 HERE
+    ("迷う", "e01.ja.srt", 2, 3),  # cumulative: 3
+    ("迷う", "e02.ja.srt", 2, 3),  # cumulative: 6
+    ("迷う", "e04.ja.srt", 2, 3),  # cumulative: 9  -- never reaches 10
 ]
 
 
@@ -196,8 +197,7 @@ def test_connect_migrates_and_backfills_legacy_schema(tmp_path):
     ep_ids = {}
     for name, processed_at, new_words, replacements in EPISODES:
         cur = raw.execute(
-            "INSERT INTO episodes (name, processed_at, new_words, replacements) "
-            "VALUES (?,?,?,?)",
+            "INSERT INTO episodes (name, processed_at, new_words, replacements) VALUES (?,?,?,?)",
             (name, processed_at, new_words, replacements),
         )
         ep_ids[name] = cur.lastrowid
@@ -218,7 +218,7 @@ def test_connect_migrates_and_backfills_legacy_schema(tmp_path):
     raw.commit()
     raw.close()
 
-    conn = db.connect(path)   # runs _migrate() + both backfills
+    conn = db.connect(path)  # runs _migrate() + both backfills
 
     words_cols = {r["name"] for r in conn.execute("PRAGMA table_info(words)")}
     assert {"last_seen_pos", "note", "learned_at", "learned_at_episode"} <= words_cols
@@ -233,14 +233,16 @@ def test_connect_migrates_and_backfills_legacy_schema(tmp_path):
     # does not match its regex's actual captured value; assert the real one).
     eps = conn.execute("SELECT name, episode_no FROM episodes ORDER BY id").fetchall()
     assert [(r["name"], r["episode_no"]) for r in eps] == [
-        ("e01.ja.srt", "1"), ("e02.ja.srt", "2"), ("e04.ja.srt", "4"),
+        ("e01.ja.srt", "1"),
+        ("e02.ja.srt", "2"),
+        ("e04.ja.srt", "4"),
     ]
 
     words = db.all_words(conn)
-    assert words["覚える"]["learned_at"] == "2026-01-03T00:00:00"     # e04's processed_at
-    assert words["覚える"]["learned_at_episode"] == "e04.ja.srt"      # first-crossing episode
-    assert words["覚える"]["last_seen_pos"] == 0                       # new column, defaulted
-    assert words["覚える"]["note"] is None                             # new column, defaulted
+    assert words["覚える"]["learned_at"] == "2026-01-03T00:00:00"  # e04's processed_at
+    assert words["覚える"]["learned_at_episode"] == "e04.ja.srt"  # first-crossing episode
+    assert words["覚える"]["last_seen_pos"] == 0  # new column, defaulted
+    assert words["覚える"]["note"] is None  # new column, defaulted
 
-    assert words["迷う"]["learned_at"] is None            # never crossed 10 -- stays unstamped
+    assert words["迷う"]["learned_at"] is None  # never crossed 10 -- stays unstamped
     assert words["迷う"]["learned_at_episode"] is None

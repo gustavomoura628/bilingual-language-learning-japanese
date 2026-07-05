@@ -17,6 +17,7 @@ Snapshots are taken going forward (after each process). For a campaign processed
 before the timeline existed, init() imports any labeled run-batch backups
 (`*.pre-eNN.db` / `*.post-eNN.db`) so earlier positions are seekable too.
 """
+
 import glob
 import json
 import os
@@ -70,10 +71,12 @@ def _load(db):
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
             return json.load(f)
-    return {"current": "main", "seq": 0,
-            "branches": {"main": {"name": "main", "parent": None,
-                                  "fork_pos": 0, "created": _now()}},
-            "snaps": []}   # each: {id, branch, position, episode, file, created}
+    return {
+        "current": "main",
+        "seq": 0,
+        "branches": {"main": {"name": "main", "parent": None, "fork_pos": 0, "created": _now()}},
+        "snaps": [],
+    }  # each: {id, branch, position, episode, file, created}
 
 
 def _save(db, reg):
@@ -89,8 +92,15 @@ def _take(db, reg, branch, position, episode, label=None):
     fname = f"snap-{sid:04d}.db"
     os.makedirs(_snaps_dir(db), exist_ok=True)
     shutil.copy2(db, os.path.join(_snaps_dir(db), fname))
-    rec = {"id": sid, "branch": branch, "position": position,
-           "episode": episode, "file": fname, "label": label, "created": _now()}
+    rec = {
+        "id": sid,
+        "branch": branch,
+        "position": position,
+        "episode": episode,
+        "file": fname,
+        "label": label,
+        "created": _now(),
+    }
     reg["snaps"].append(rec)
     return rec
 
@@ -100,10 +110,12 @@ def _import_backups(db, reg):
     snapshots so a pre-timeline campaign is still seekable. pre-eNN = state
     after episode N-1; post-eNN = state after episode N."""
     bdir = os.path.join(os.path.dirname(os.path.abspath(db)), "backups")
-    stem = os.path.splitext(os.path.basename(db))[0]   # campaign.db -> "campaign"
+    stem = os.path.splitext(os.path.basename(db))[0]  # campaign.db -> "campaign"
     have = {(s["branch"], s["position"]) for s in reg["snaps"]}
-    for f in sorted(glob.glob(os.path.join(bdir, stem + ".pre-e*.db")) +
-                    glob.glob(os.path.join(bdir, stem + ".post-e*.db"))):
+    for f in sorted(
+        glob.glob(os.path.join(bdir, stem + ".pre-e*.db"))
+        + glob.glob(os.path.join(bdir, stem + ".post-e*.db"))
+    ):
         m = re.search(r"\.(pre|post)-e(\d+)\.db$", f)
         if not m:
             continue
@@ -113,10 +125,17 @@ def _import_backups(db, reg):
         reg["seq"] += 1
         fname = f"snap-{reg['seq']:04d}.db"
         shutil.copy2(f, os.path.join(_snaps_dir(db), fname))
-        reg["snaps"].append({"id": reg["seq"], "branch": "main", "position": pos,
-                             "episode": None, "file": fname,
-                             "label": f"imported {os.path.basename(f)}",
-                             "created": _now()})
+        reg["snaps"].append(
+            {
+                "id": reg["seq"],
+                "branch": "main",
+                "position": pos,
+                "episode": None,
+                "file": fname,
+                "label": f"imported {os.path.basename(f)}",
+                "created": _now(),
+            }
+        )
         have.add(("main", pos))
 
 
@@ -131,8 +150,7 @@ def init(db):
         _import_backups(db, reg)
     pos = _episode_count(db)
     cur = reg["current"]
-    if pos and not any(s["branch"] == cur and s["position"] == pos
-                       for s in reg["snaps"]):
+    if pos and not any(s["branch"] == cur and s["position"] == pos for s in reg["snaps"]):
         _take(db, reg, cur, pos, _last_episode_name(db), label="head")
     _save(db, reg)
     return reg
@@ -150,8 +168,7 @@ def record(db):
 
 
 def _snap_at(reg, branch, position):
-    cand = [s for s in reg["snaps"] if s["branch"] == branch
-            and s["position"] == position]
+    cand = [s for s in reg["snaps"] if s["branch"] == branch and s["position"] == position]
     return cand[-1] if cand else None
 
 
@@ -176,10 +193,17 @@ def state(db):
     branches = []
     for bid, b in reg["branches"].items():
         head = _head_snap(reg, bid)
-        branches.append({"id": bid, "name": b["name"], "parent": b["parent"],
-                         "fork_pos": b["fork_pos"],
-                         "head_pos": head["position"] if head else b["fork_pos"],
-                         "created": b["created"], "active": bid == cur})
+        branches.append(
+            {
+                "id": bid,
+                "name": b["name"],
+                "parent": b["parent"],
+                "fork_pos": b["fork_pos"],
+                "head_pos": head["position"] if head else b["fork_pos"],
+                "created": b["created"],
+                "active": bid == cur,
+            }
+        )
     seekable = sorted({s["position"] for s in reg["snaps"] if s["branch"] == cur})
     return {"current": cur, "branches": branches, "seekable": seekable}
 
@@ -192,15 +216,14 @@ def branch(db, position, name):
     snap = _snap_at(reg, cur, position)
     if not snap:
         raise ValueError(f"no snapshot at episode #{position} to branch from")
-    bid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or f"branch-{reg['seq']+1}"
+    bid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or f"branch-{reg['seq'] + 1}"
     if bid in reg["branches"]:
-        bid = f"{bid}-{reg['seq']+1}"
+        bid = f"{bid}-{reg['seq'] + 1}"
     # snapshot current head first so nothing is lost, then swap the working DB
     record(db)
     shutil.copy2(os.path.join(_snaps_dir(db), snap["file"]), db)
     reg = _load(db)
-    reg["branches"][bid] = {"name": name, "parent": cur, "fork_pos": position,
-                            "created": _now()}
+    reg["branches"][bid] = {"name": name, "parent": cur, "fork_pos": position, "created": _now()}
     reg["current"] = bid
     _take(db, reg, bid, position, snap["episode"], label="branch base")
     _save(db, reg)

@@ -9,6 +9,7 @@ Uses jmdict-simplified (eng-common subset, ~20K common words) from
 https://github.com/scriptin/jmdict-simplified - small enough to parse fast,
 and the zipf >= 3 selection floor means real candidates should be in it.
 """
+
 import gzip
 import io
 import json
@@ -29,17 +30,44 @@ DATA_DIR = os.path.join(
 # suffix entry's "-ian; -ite").
 LOOKUP_PATH = os.path.join(DATA_DIR, "jmdict-lookup-v2.json.gz")
 LATEST_URL = "https://github.com/scriptin/jmdict-simplified/releases/latest"
-ASSET_URL = ("https://github.com/scriptin/jmdict-simplified/releases/download/"
-             "{tag}/jmdict-eng-common-{tag}.json.zip")
+ASSET_URL = (
+    "https://github.com/scriptin/jmdict-simplified/releases/download/"
+    "{tag}/jmdict-eng-common-{tag}.json.zip"
+)
 
 _lookup = None
 _gloss_token_cache = {}
 
 # Tokens in glosses that carry no lexical content.
 STOP_TOKENS = {
-    "to", "a", "an", "the", "of", "in", "on", "at", "for", "with", "and",
-    "or", "be", "being", "one", "ones", "oneself", "something", "someone",
-    "somebody", "etc", "esp", "usu", "e", "g", "i", "s", "t",
+    "to",
+    "a",
+    "an",
+    "the",
+    "of",
+    "in",
+    "on",
+    "at",
+    "for",
+    "with",
+    "and",
+    "or",
+    "be",
+    "being",
+    "one",
+    "ones",
+    "oneself",
+    "something",
+    "someone",
+    "somebody",
+    "etc",
+    "esp",
+    "usu",
+    "e",
+    "g",
+    "i",
+    "s",
+    "t",
 }
 
 _word_re = re.compile(r"[a-z]+")
@@ -54,8 +82,7 @@ def _fetch(url):
 def _latest_tag():
     """Resolve the latest release tag from the /releases/latest redirect
     (avoids api.github.com, which some networks block)."""
-    req = urllib.request.Request(LATEST_URL, method="HEAD",
-                                 headers={"User-Agent": "bll"})
+    req = urllib.request.Request(LATEST_URL, method="HEAD", headers={"User-Agent": "bll"})
 
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *a, **kw):
@@ -121,8 +148,10 @@ def load(auto_build=True):
 
 
 COMPOUNDS_PATH = os.path.join(DATA_DIR, "jmdict-compounds.json.gz")
-FULL_ASSET_URL = ("https://github.com/scriptin/jmdict-simplified/releases/"
-                  "download/{tag}/jmdict-eng-{tag}.json.zip")
+FULL_ASSET_URL = (
+    "https://github.com/scriptin/jmdict-simplified/releases/"
+    "download/{tag}/jmdict-eng-{tag}.json.zip"
+)
 _compounds = None
 _cjk_re = re.compile(r"^[぀-ヿー一-鿿]{3,8}$")
 
@@ -155,14 +184,16 @@ def build_compounds(verbose=True):
     del raw
     lookup = {}
     for e in _iter_words(text):
-        kanji = [k["text"] for k in e.get("kanji", [])
-                 if _cjk_re.match(k["text"])]
+        kanji = [k["text"] for k in e.get("kanji", []) if _cjk_re.match(k["text"])]
         if not kanji:
             continue
         kana = [k["text"] for k in e.get("kana", [])]
-        glosses = [g["text"] for s in e.get("sense", [])[:3]
-                   for g in s.get("gloss", [])[:3]
-                   if g.get("lang", "eng") == "eng"]
+        glosses = [
+            g["text"]
+            for s in e.get("sense", [])[:3]
+            for g in s.get("gloss", [])[:3]
+            if g.get("lang", "eng") == "eng"
+        ]
         if not glosses:
             continue
         for surface in kanji:
@@ -223,11 +254,31 @@ def readings(ent):
 # ('not beautiful' -> the antonym) or a definitional relativiser/placeholder
 # ('place WHERE you do SOMETHING'). Its individual tokens must NOT become
 # matchable synonyms. Clean glosses (no marker) are trusted, incl. their head.
-GLOSS_MARKERS = frozenset((
-    "not", "no", "never", "without", "cannot", "nor", "neither", "n't",
-    "where", "who", "whom", "whose", "which", "when", "why", "whoever",
-    "wherever", "something", "someone", "somebody", "such",
-))
+GLOSS_MARKERS = frozenset(
+    (
+        "not",
+        "no",
+        "never",
+        "without",
+        "cannot",
+        "nor",
+        "neither",
+        "n't",
+        "where",
+        "who",
+        "whom",
+        "whose",
+        "which",
+        "when",
+        "why",
+        "whoever",
+        "wherever",
+        "something",
+        "someone",
+        "somebody",
+        "such",
+    )
+)
 
 
 def _gloss_tokens(ent_key, ent):
@@ -245,7 +296,7 @@ def _gloss_tokens(ent_key, ent):
                 g2 = re.sub(r"\([^)]*\)", " ", g.lower())  # drop "(quality)" etc.
                 raw = _word_re.findall(g2)
                 if any(t in GLOSS_MARKERS for t in raw):
-                    continue                       # a definition - trust nothing
+                    continue  # a definition - trust nothing
                 for t in raw:
                     if t in STOP_TOKENS:
                         continue
@@ -255,8 +306,7 @@ def _gloss_tokens(ent_key, ent):
     return toks
 
 
-_DERIV = ("able", "ably", "ful", "ness", "ment", "ly",
-          "ion", "tion", "sion", "ation")
+_DERIV = ("able", "ably", "ful", "ness", "ment", "ly", "ion", "tion", "sion", "ation")
 
 
 def _tok_matches(t, toks):
@@ -271,11 +321,9 @@ def _tok_matches(t, toks):
         return True
     if t.endswith("ly") and (t[:-2] in toks or t[:-2] + "e" in toks):
         return True  # beautifully -> beautiful
-    if len(lem) >= 4 and any(gt.startswith(lem) and gt[len(lem):] in _DERIV
-                             for gt in toks):
+    if len(lem) >= 4 and any(gt.startswith(lem) and gt[len(lem) :] in _DERIV for gt in toks):
         return True  # enjoyed/enjoy -> enjoyable
-    if len(t) >= 5 and any(gt.startswith(t) and len(gt) - len(t) >= 4
-                           for gt in toks):
+    if len(t) >= 5 and any(gt.startswith(t) and len(gt) - len(t) >= 4 for gt in toks):
         return True  # recon -> reconnaissance
     if len(lem) >= 5:
         if lem.endswith("d") and lem[:-1] + "se" in toks:
@@ -297,8 +345,11 @@ def gloss_span(lemma, ent, en_word):
     toks = _gloss_tokens(lemma, ent)
     # span the first..last gloss-matching token: drops leading/trailing material
     # (a negation, article, or the rest of a clause) that isn't part of the word.
-    hits = [(m.start(), m.end()) for m in _word_re.finditer(en_word.lower())
-            if _tok_matches(m.group(), toks)]
+    hits = [
+        (m.start(), m.end())
+        for m in _word_re.finditer(en_word.lower())
+        if _tok_matches(m.group(), toks)
+    ]
     return (hits[0][0], hits[-1][1]) if hits else None
 
 
@@ -352,8 +403,7 @@ def entry_for_en(lemma, ent, en_word):
     English already committed to replacing."""
     if not ent or not en_word:
         return None
-    scored = sorted(((_entry_en_score(e, en_word), -i)
-                     for i, e in enumerate(ent)), reverse=True)
+    scored = sorted(((_entry_en_score(e, en_word), -i) for i, e in enumerate(ent)), reverse=True)
     if scored[0][0] == 0:
         return None
     if len(scored) > 1 and scored[0][0] == scored[1][0]:
@@ -382,8 +432,7 @@ def canonical_gloss(ent, reading=None, max_glosses=2, prefer=None):
                 ptoks.add(t)
                 ptoks.add(_lemmatize(t))
         for i, g in enumerate(glosses):
-            gtoks = {x for t in _word_re.findall(g.lower())
-                     for x in (t, _lemmatize(t))}
+            gtoks = {x for t in _word_re.findall(g.lower()) for x in (t, _lemmatize(t))}
             if gtoks & ptoks:
                 glosses = glosses[i:] + glosses[:i]
                 break

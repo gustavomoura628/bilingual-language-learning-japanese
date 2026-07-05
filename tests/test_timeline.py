@@ -16,6 +16,7 @@ file, so a second connection only ever sees committed data.
 
 Run: pytest tests/test_timeline.py
 """
+
 import os
 import sys
 
@@ -64,27 +65,30 @@ def test_init_idempotent_then_record_snapshots_new_episode_then_noop(campaign_db
     assert len(reg1["snaps"]) == 1
     first_snap_id = reg1["snaps"][0]["id"]
 
-    reg2 = timeline.init(path)                        # unchanged episode count
+    reg2 = timeline.init(path)  # unchanged episode count
     assert len(reg2["snaps"]) == 1
-    assert reg2["snaps"][0]["id"] == first_snap_id     # same snapshot, not a new one
+    assert reg2["snaps"][0]["id"] == first_snap_id  # same snapshot, not a new one
 
-    _add_episode(path, "e02.ja.srt")                   # a NEW episode
+    _add_episode(path, "e02.ja.srt")  # a NEW episode
     reg3 = timeline.record(path)
     assert len(reg3["snaps"]) == 2
     assert sorted(s["position"] for s in reg3["snaps"]) == [1, 2]
 
-    reg4 = timeline.record(path)                       # no new episode since
+    reg4 = timeline.record(path)  # no new episode since
     assert len(reg4["snaps"]) == 2
 
 
 def test_branch_at_snapshotted_position_succeeds_and_keeps_source_branch(campaign_db):
     path = campaign_db
-    _add_episode(path, "e01.ja.srt"); timeline.record(path)
-    _add_episode(path, "e02.ja.srt"); timeline.record(path)
-    _add_episode(path, "e03.ja.srt"); timeline.record(path)
+    _add_episode(path, "e01.ja.srt")
+    timeline.record(path)
+    _add_episode(path, "e02.ja.srt")
+    timeline.record(path)
+    _add_episode(path, "e03.ja.srt")
+    timeline.record(path)
 
     bid = timeline.branch(path, 2, "Alt Take")
-    assert bid == "alt-take"          # re.sub(r"[^a-z0-9]+", "-", ...) slug of "Alt Take"
+    assert bid == "alt-take"  # re.sub(r"[^a-z0-9]+", "-", ...) slug of "Alt Take"
 
     reg = timeline._load(path)
     assert reg["current"] == "alt-take"
@@ -97,7 +101,7 @@ def test_branch_at_snapshotted_position_succeeds_and_keeps_source_branch(campaig
     main_positions = sorted(s["position"] for s in reg["snaps"] if s["branch"] == "main")
     assert main_positions == [1, 2, 3]
     assert any(s["branch"] == "alt-take" and s["position"] == 2 for s in reg["snaps"])
-    assert len(reg["snaps"]) == 4   # 3 (main) + 1 (alt-take's new branch-base snapshot)
+    assert len(reg["snaps"]) == 4  # 3 (main) + 1 (alt-take's new branch-base snapshot)
 
 
 def test_branch_at_position_without_snapshot_raises_value_error(campaign_db):
@@ -111,16 +115,19 @@ def test_branch_at_position_without_snapshot_raises_value_error(campaign_db):
 
 def test_switch_to_existing_branch_with_snapshot_succeeds(campaign_db):
     path = campaign_db
-    _add_episode(path, "e01.ja.srt"); timeline.record(path)
-    _add_episode(path, "e02.ja.srt"); timeline.record(path)
-    _add_episode(path, "e03.ja.srt"); timeline.record(path)
-    timeline.branch(path, 2, "Alt Take")           # current -> alt-take; live file rewound to 2 eps
+    _add_episode(path, "e01.ja.srt")
+    timeline.record(path)
+    _add_episode(path, "e02.ja.srt")
+    timeline.record(path)
+    _add_episode(path, "e03.ja.srt")
+    timeline.record(path)
+    timeline.branch(path, 2, "Alt Take")  # current -> alt-take; live file rewound to 2 eps
     assert timeline._episode_count(path) == 2
 
     reg = timeline.switch(path, "main")
     assert reg["current"] == "main"
     assert timeline._load(path)["current"] == "main"
-    assert timeline._episode_count(path) == 3      # live DB file swapped back to main's head
+    assert timeline._episode_count(path) == 3  # live DB file swapped back to main's head
 
 
 def test_switch_to_unknown_branch_raises_value_error(campaign_db):
@@ -136,7 +143,7 @@ def test_switch_to_branch_without_snapshot_raises_value_error(campaign_db):
     # registry JSON.
     path = campaign_db
     _add_episode(path, "e01.ja.srt")
-    timeline.record(path)                           # normal main@1 snapshot exists
+    timeline.record(path)  # normal main@1 snapshot exists
 
     # White-box: hand-inject a branch registry entry with NO matching
     # snapshot record. Built via timeline._load/_save (the module's own
@@ -144,7 +151,9 @@ def test_switch_to_branch_without_snapshot_raises_value_error(campaign_db):
     # switch() expects -- not a hand-guessed JSON structure.
     reg = timeline._load(path)
     reg["branches"]["ghost"] = {
-        "name": "Ghost", "parent": "main", "fork_pos": 1,
+        "name": "Ghost",
+        "parent": "main",
+        "fork_pos": 1,
         "created": timeline._now(),
     }
     timeline._save(path, reg)
@@ -155,15 +164,18 @@ def test_switch_to_branch_without_snapshot_raises_value_error(campaign_db):
 
 def test_state_reports_branches_and_seekable_positions(campaign_db):
     path = campaign_db
-    _add_episode(path, "e01.ja.srt"); timeline.record(path)
-    _add_episode(path, "e02.ja.srt"); timeline.record(path)
-    _add_episode(path, "e03.ja.srt"); timeline.record(path)
-    timeline.branch(path, 2, "Alt Take")            # current -> alt-take, rewound to 2 episodes
-    _add_episode(path, "e03-alt.ja.srt")             # a NEW, different episode 3 on this branch
+    _add_episode(path, "e01.ja.srt")
+    timeline.record(path)
+    _add_episode(path, "e02.ja.srt")
+    timeline.record(path)
+    _add_episode(path, "e03.ja.srt")
+    timeline.record(path)
+    timeline.branch(path, 2, "Alt Take")  # current -> alt-take, rewound to 2 episodes
+    _add_episode(path, "e03-alt.ja.srt")  # a NEW, different episode 3 on this branch
     timeline.record(path)
 
     st = timeline.state(path)
-    by_id = {b["id"]: b for b in st["branches"]}     # dict-index -- don't rely on list order
+    by_id = {b["id"]: b for b in st["branches"]}  # dict-index -- don't rely on list order
 
     assert st["current"] == "alt-take"
     assert by_id["main"]["fork_pos"] == 0
@@ -172,4 +184,4 @@ def test_state_reports_branches_and_seekable_positions(campaign_db):
     assert by_id["alt-take"]["fork_pos"] == 2
     assert by_id["alt-take"]["head_pos"] == 3
     assert by_id["alt-take"]["active"] is True
-    assert st["seekable"] == [2, 3]                  # alt-take's own snapshotted positions
+    assert st["seekable"] == [2, 3]  # alt-take's own snapshotted positions

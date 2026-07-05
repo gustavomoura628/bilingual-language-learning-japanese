@@ -11,6 +11,7 @@ rule that no-ops on ties / single-reading words.
 
 Run: pytest tests/test_heteronym_reading.py
 """
+
 import os
 import sys
 
@@ -30,11 +31,11 @@ def test_heteronym_sense_first_reading():
     # the other senses -- and ties / no-match return None so the caller keeps
     # the stored reading.
     assert reading("角", "horn") == "つの"
-    assert reading("角", "horns") == "つの"        # plural via lemmatizer
+    assert reading("角", "horns") == "つの"  # plural via lemmatizer
     assert reading("角", "angle") == "かく"
     assert reading("角", "edge") == "かど"
-    assert reading("角", "corner") is None          # かど/すみ tie -> keep fallback
-    assert reading("方", "way") is None             # かた/ほう tie -> keep fallback
+    assert reading("角", "corner") is None  # かど/すみ tie -> keep fallback
+    assert reading("方", "way") is None  # かた/ほう tie -> keep fallback
     assert reading("方", "person") == "かた"
 
     # The "horn" trap: entry かく has 'Chinese "horn" constellation' (quoted,
@@ -47,19 +48,37 @@ def test_apply_sense_first_plan_mutation():
     # apply_sense_first end-to-end: only flips genuine heteronyms whose
     # reading actually changes; everything else is a byte-for-byte no-op.
     plan = [
-        {"cue": 0, "en_word": "horn", "lemma": "角", "reading": "かど",
-         "exposure_before": 0, "recency_gap": 0},
-        {"cue": 1, "en_word": "corner", "lemma": "角", "reading": "かど",
-         "exposure_before": 0, "recency_gap": 0},
-        {"cue": 2, "en_word": "today", "lemma": "今日", "reading": "きょう",
-         "exposure_before": 0, "recency_gap": 0},
+        {
+            "cue": 0,
+            "en_word": "horn",
+            "lemma": "角",
+            "reading": "かど",
+            "exposure_before": 0,
+            "recency_gap": 0,
+        },
+        {
+            "cue": 1,
+            "en_word": "corner",
+            "lemma": "角",
+            "reading": "かど",
+            "exposure_before": 0,
+            "recency_gap": 0,
+        },
+        {
+            "cue": 2,
+            "en_word": "today",
+            "lemma": "今日",
+            "reading": "きょう",
+            "exposure_before": 0,
+            "recency_gap": 0,
+        },
     ]
     changed = cli.apply_sense_first(plan, lk, conn=None, use_romaji=True)
 
     assert changed == 1
-    assert plan[0]["reading"] == "つの"       # horn injection -> つの
+    assert plan[0]["reading"] == "つの"  # horn injection -> つの
     assert plan[0].get("note") == "角 (tsuno) = horn; antler"
-    assert plan[1]["reading"] == "かど"       # corner injection unchanged
+    assert plan[1]["reading"] == "かど"  # corner injection unchanged
     assert plan[1].get("note") is None
-    assert plan[2]["reading"] == "きょう"     # 今日 single-reading untouched
+    assert plan[2]["reading"] == "きょう"  # 今日 single-reading untouched
     assert plan[2].get("note") is None
