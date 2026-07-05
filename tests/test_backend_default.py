@@ -30,7 +30,7 @@ def test_cli_process_defaults_backend_to_ollama(monkeypatch):
 
     monkeypatch.setattr(cli, "cmd_process", _fake_process)
     cli.main(["process", "a.ja.srt", "b.en.srt"])
-    assert captured.get("backend") == "ollama"
+    assert captured.get("backend") == "claude"  # SMOKE: deliberately wrong — red-proof commit, reverted next
 
 
 def test_gloss_and_align_defaults_backend_to_ollama():
