@@ -29,6 +29,7 @@ gloss.PROMPT_HEADER for the JSON contract.
 
 Run: pytest tests/test_process_e2e_smoke.py
 """
+
 import json
 import os
 import socket
@@ -44,14 +45,25 @@ EN_SUB = os.path.join(FIXTURES, "promise_secret.en.srt")
 
 GLOSS_JSON = {
     "words": [
-        {"lemma": "約束", "gloss": "promise", "reading": "やくそく", "skip": False,
-         "matches": [{"id": 1, "en_word": "promise"},
-                     {"id": 2, "en_word": "promise"},
-                     {"id": 3, "en_word": "promise"},
-                     {"id": 4, "en_word": "promise"}]},
-        {"lemma": "秘密", "gloss": "secret", "reading": "ひみつ", "skip": False,
-         "matches": [{"id": 5, "en_word": "secret"},
-                     {"id": 6, "en_word": "secret"}]},
+        {
+            "lemma": "約束",
+            "gloss": "promise",
+            "reading": "やくそく",
+            "skip": False,
+            "matches": [
+                {"id": 1, "en_word": "promise"},
+                {"id": 2, "en_word": "promise"},
+                {"id": 3, "en_word": "promise"},
+                {"id": 4, "en_word": "promise"},
+            ],
+        },
+        {
+            "lemma": "秘密",
+            "gloss": "secret",
+            "reading": "ひみつ",
+            "skip": False,
+            "matches": [{"id": 5, "en_word": "secret"}, {"id": 6, "en_word": "secret"}],
+        },
     ]
 }
 
@@ -59,8 +71,10 @@ GLOSS_JSON = {
 def block_network(monkeypatch):
     """Fail loudly (rather than silently succeed by sandbox happenstance) if
     this test ever opens a socket or spawns the Claude CLI."""
+
     def blocked(*a, **k):
         raise AssertionError("network access attempted during offline e2e test")
+
     monkeypatch.setattr(socket.socket, "connect", blocked)
     monkeypatch.setattr(socket.socket, "connect_ex", blocked)
 
@@ -70,6 +84,7 @@ def block_network(monkeypatch):
         if isinstance(cmd, (list, tuple)) and cmd and "claude" in str(cmd[0]):
             raise AssertionError("Claude CLI spawn attempted during offline e2e test")
         return real_run(cmd, *a, **k)
+
     monkeypatch.setattr(subprocess, "run", guarded_run)
 
 
@@ -80,10 +95,20 @@ def run_process(tmp_path, run_name, gloss_json_path):
     out_dir = tmp_path / run_name
     out_dir.mkdir()
     out_path = out_dir / "out.srt"
-    rc = cli.main([
-        "--db", str(out_dir / "vocab.db"), "process", JA_SUB, EN_SUB,
-        "-o", str(out_path), "--no-dict", "--gloss-json", str(gloss_json_path),
-    ])
+    rc = cli.main(
+        [
+            "--db",
+            str(out_dir / "vocab.db"),
+            "process",
+            JA_SUB,
+            EN_SUB,
+            "-o",
+            str(out_path),
+            "--no-dict",
+            "--gloss-json",
+            str(gloss_json_path),
+        ]
+    )
     assert rc == 0
     layers = {
         "adaptive": out_dir / "out.srt",
@@ -123,10 +148,14 @@ def test_process_e2e_smoke_fixture(tmp_path, monkeypatch):
     plan_data = json.loads(plan.read_text(encoding="utf-8"))
     injections = plan_data["injections"]
     assert len(injections) == 6  # one per fixture cue: 4x約束 + 2x秘密
-    assert any(inj["lemma"] == "約束" and inj["cue"] == 0
-              and inj["en_word"] == "promise" for inj in injections)
-    assert any(inj["lemma"] == "秘密" and inj["cue"] == 3
-              and inj["en_word"] == "secret" for inj in injections)
+    assert any(
+        inj["lemma"] == "約束" and inj["cue"] == 0 and inj["en_word"] == "promise"
+        for inj in injections
+    )
+    assert any(
+        inj["lemma"] == "秘密" and inj["cue"] == 3 and inj["en_word"] == "secret"
+        for inj in injections
+    )
 
 
 def test_process_e2e_two_clean_runs_byte_identical(tmp_path, monkeypatch):
@@ -138,7 +167,9 @@ def test_process_e2e_two_clean_runs_byte_identical(tmp_path, monkeypatch):
     layers2, plan2 = run_process(tmp_path, "run2", gloss_json_path)
 
     for name in layers1:
-        assert layers1[name].read_bytes() == layers2[name].read_bytes(), \
+        assert layers1[name].read_bytes() == layers2[name].read_bytes(), (
             f"{name} layer differs between two clean runs"
-    assert plan1.read_bytes() == plan2.read_bytes(), \
+        )
+    assert plan1.read_bytes() == plan2.read_bytes(), (
         "plan.json sidecar differs between two clean runs"
+    )

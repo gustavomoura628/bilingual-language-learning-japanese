@@ -8,11 +8,12 @@ if not. Used by `bll bootstrap` and by `bll serve` on startup, so a fresh machin
 No GPU code here: this only speaks the ollama HTTP API, so it works whether
 ollama runs on the host, in a sibling container, or on a remote box.
 """
+
 import json
 import os
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 # The aligner base + profile. BASE is the upstream model the profile is built
 # FROM; PROFILE is the tuned variant bll calls. Keep PARAMS in sync with
@@ -37,9 +38,11 @@ def _api(url, path, payload=None, timeout=10):
     """Minimal ollama API call (stdlib only, no requests dependency)."""
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(
-        url.rstrip("/") + path, data=data,
+        url.rstrip("/") + path,
+        data=data,
         headers={"Content-Type": "application/json"},
-        method="POST" if data is not None else "GET")
+        method="POST" if data is not None else "GET",
+    )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
@@ -67,7 +70,8 @@ def resolve_url(explicit=None, wait=0):
         time.sleep(2)
     raise RuntimeError(
         "no reachable ollama found. Install it (https://ollama.com) and "
-        "`ollama serve`, or set OLLAMA_URL. Tried: " + ", ".join(c for c in cands if c))
+        "`ollama serve`, or set OLLAMA_URL. Tried: " + ", ".join(c for c in cands if c)
+    )
 
 
 def _tags(url):
@@ -84,8 +88,9 @@ def _pull(url, model, log=print):
     log(f"  pulling {model} (one-time large download)...")
     # streamed to report progress and avoid timing out on a multi-GB pull
     data = json.dumps({"model": model, "stream": True}).encode()
-    req = urllib.request.Request(url.rstrip("/") + "/api/pull", data=data,
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        url.rstrip("/") + "/api/pull", data=data, headers={"Content-Type": "application/json"}
+    )
     last = ""
     with urllib.request.urlopen(req, timeout=600) as r:
         for line in r:
@@ -104,9 +109,13 @@ def _pull(url, model, log=print):
 def _create_profile(url, log=print):
     log(f"  creating aligner profile {PROFILE} from {BASE_MODEL}...")
     # ollama >= 0.x /api/create: from/template/parameters (no Modelfile string)
-    payload = {"model": PROFILE, "from": BASE_MODEL,
-               "template": PROFILE_TEMPLATE, "parameters": PROFILE_PARAMS,
-               "stream": False}
+    payload = {
+        "model": PROFILE,
+        "from": BASE_MODEL,
+        "template": PROFILE_TEMPLATE,
+        "parameters": PROFILE_PARAMS,
+        "stream": False,
+    }
     _api(url, "/api/create", payload, timeout=120)
 
 

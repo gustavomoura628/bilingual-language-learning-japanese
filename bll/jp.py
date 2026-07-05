@@ -1,4 +1,5 @@
 """Japanese tokenization, lemmatization and candidate-word extraction."""
+
 import re
 
 import fugashi
@@ -50,12 +51,38 @@ EXCLUDE_POS2 = {"固有名詞", "数詞", "助数詞", "非自立可能"}
 # justified per-entry by the criterion, not by annoyance.
 STOPWORDS = {
     # abstract relational nouns (normalized kanji + common kana spellings)
-    "事", "こと", "物", "もの", "奴", "所", "ところ", "訳", "わけ",
-    "筈", "はず", "為", "ため", "様", "よう", "方", "ほう", "内", "うち",
-    "時", "とき", "気", "感じ", "まま", "くらい", "ぐらい",
+    "事",
+    "こと",
+    "物",
+    "もの",
+    "奴",
+    "所",
+    "ところ",
+    "訳",
+    "わけ",
+    "筈",
+    "はず",
+    "為",
+    "ため",
+    "様",
+    "よう",
+    "方",
+    "ほう",
+    "内",
+    "うち",
+    "時",
+    "とき",
+    "気",
+    "感じ",
+    "まま",
+    "くらい",
+    "ぐらい",
     # frame-heavy demonstrative/interrogative adverbs (pos1=副詞, so they
     # pass CONTENT_POS but their meaning is purely deictic)
-    "どう", "そう", "こう", "ああ",
+    "どう",
+    "そう",
+    "こう",
+    "ああ",
 }
 
 _ascii_re = re.compile(r"^[\x00-\x7F　、。！？…・「」『』（）]+$")
@@ -110,25 +137,28 @@ def analyze(lines, jm=None, keep=None):
             # never counted (no accidental component picks). Non-JMdict
             # adjacencies (proper-noun compounds) fall through to the
             # compound-internal exclusion below, as before.
-            if (jm is not None and f.pos1 == "名詞"
-                    and f.pos2 not in ("固有名詞", "数詞", "助数詞")):
+            if jm is not None and f.pos1 == "名詞" and f.pos2 not in ("固有名詞", "数詞", "助数詞"):
                 comp_len = 0
                 for L in (3, 2):
                     if i + L > len(toks):
                         continue
-                    rest = toks[i + 1:i + L]
-                    if not all(t.feature.pos1 in ("名詞", "接尾辞")
-                               and t.feature.pos2 not in ("固有名詞", "数詞")
-                               for t in rest):
+                    rest = toks[i + 1 : i + L]
+                    if not all(
+                        t.feature.pos1 in ("名詞", "接尾辞")
+                        and t.feature.pos2 not in ("固有名詞", "数詞")
+                        for t in rest
+                    ):
                         continue
-                    surface = "".join(t.surface for t in toks[i:i + L])
+                    surface = "".join(t.surface for t in toks[i : i + L])
                     if surface in jm and surface not in STOPWORDS:
                         comp_len = L
                         break
                 if comp_len:
-                    reading = kata_to_hira("".join(
-                        t.feature.lForm or t.feature.pron or ""
-                        for t in toks[i:i + comp_len]))
+                    reading = kata_to_hira(
+                        "".join(
+                            t.feature.lForm or t.feature.pron or "" for t in toks[i : i + comp_len]
+                        )
+                    )
                     w = words.get(surface)
                     if w is None:
                         words[surface] = w = {
@@ -195,9 +225,20 @@ def analyze(lines, jm=None, keep=None):
     return words
 
 
-def select_new(words, exclude, n, min_count=2, min_zipf=3.0, allowed_pos=None,
-               future=None, future_traj=None, load_threshold=10,
-               consolidation=12, durable_zipf=4.5, count_field="count"):
+def select_new(
+    words,
+    exclude,
+    n,
+    min_count=2,
+    min_zipf=3.0,
+    allowed_pos=None,
+    future=None,
+    future_traj=None,
+    load_threshold=10,
+    consolidation=12,
+    durable_zipf=4.5,
+    count_field="count",
+):
     """Pick the n most useful new words.
 
     Usefulness = frequent in this episode (seen again immediately)
@@ -214,16 +255,15 @@ def select_new(words, exclude, n, min_count=2, min_zipf=3.0, allowed_pos=None,
     little season runway because other shows will reinforce it for free
     (the general-vs-domain split); a domain word with no runway is dropped.
     """
+
     # Score on the injectable count (occurrences that will actually inject)
     # when available - `count_field` selects "inj" vs raw "count".
-    cnt = lambda w: w.get(count_field, w["count"])
+    def cnt(w):
+        return w.get(count_field, w["count"])
 
     # flat rest-of-season totals (for the runway/doomed check), derived from
     # the per-episode trajectory when available.
-    if future_traj is not None:
-        fut = {w: sum(v) for w, v in future_traj.items()}
-    else:
-        fut = future or {}
+    fut = {w: sum(v) for w, v in future_traj.items()} if future_traj is not None else future or {}
     have_lookahead = future_traj is not None or future is not None
 
     def time_to_consolidate(w):
@@ -257,7 +297,8 @@ def select_new(words, exclude, n, min_count=2, min_zipf=3.0, allowed_pos=None,
         return cnt(w) + fut.get(w["lemma"], 0) < consolidation  # flat fallback
 
     cands = [
-        w for lemma, w in words.items()
+        w
+        for lemma, w in words.items()
         if lemma not in exclude
         and cnt(w) >= min_count
         and w["zipf"] >= min_zipf
@@ -270,11 +311,10 @@ def select_new(words, exclude, n, min_count=2, min_zipf=3.0, allowed_pos=None,
         # time-to-consolidate. Front-loads fast consolidators, defers slow
         # words to their dense stretch, and ignores phantom-frequency words
         # whose English rarely appears - they have low injectable count.
-        cands.sort(key=lambda w: (cnt(w) * w["zipf"]) /
-                   time_to_consolidate(w), reverse=True)
+        cands.sort(key=lambda w: (cnt(w) * w["zipf"]) / time_to_consolidate(w), reverse=True)
     else:
         # No season lookahead: episode frequency primary, flat runway tiebreak.
-        cands.sort(key=lambda w: (cnt(w) * w["zipf"],
-                                  cnt(w) + fut.get(w["lemma"], 0)),
-                   reverse=True)
+        cands.sort(
+            key=lambda w: (cnt(w) * w["zipf"], cnt(w) + fut.get(w["lemma"], 0)), reverse=True
+        )
     return cands[:n]

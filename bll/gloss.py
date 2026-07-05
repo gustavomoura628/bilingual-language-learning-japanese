@@ -5,6 +5,7 @@ Japanese line and the overlapping English line, and must return, per
 occurrence, the exact substring of the English line that translates the word
 (or null if the English line doesn't contain a clean equivalent).
 """
+
 import json
 import os
 import re
@@ -45,7 +46,8 @@ Tasks:
    align occurrences where the word stands alone with its own meaning.
 
 Return ONLY a JSON object, no markdown fences, exactly this shape:
-{"words": [{"lemma": "...", "gloss": "...", "reading": "...", "skip": false, "matches": [{"id": 1, "en_word": "..." or null}]}]}
+{"words": [{"lemma": "...", "gloss": "...", "reading": "...", "skip": false, "matches": [{"id": 1,\
+ "en_word": "..." or null}]}]}
 
 Words:
 """
@@ -70,7 +72,8 @@ Also give a short lowercase English gloss (1-3 words) and the word's natural
 hiragana reading as spoken in these lines.
 
 Return ONLY JSON, exactly:
-{"words": [{"lemma": "...", "gloss": "...", "reading": "...", "skip": false, "matches": [{"id": 1, "en_word": "..." or null}]}]}
+{"words": [{"lemma": "...", "gloss": "...", "reading": "...", "skip": false, "matches": [{"id": 1,\
+ "en_word": "..." or null}]}]}
 Set "skip": true ONLY if the word is a mis-segmented fragment, not a real word.
 
 Words:
@@ -81,10 +84,10 @@ def build_prompt(entries, header=None):
     """entries: list of {lemma, reading, occurrences:[{id, ja, en}]}"""
     parts = [header or PROMPT_HEADER]
     for e in entries:
-        parts.append(f'\n### {e["lemma"]} ({e["reading"]})')
+        parts.append(f"\n### {e['lemma']} ({e['reading']})")
         for occ in e["occurrences"]:
-            parts.append(f'- id {occ["id"]}: ja: {occ["ja"]}')
-            parts.append(f'         en: {occ["en"]}')
+            parts.append(f"- id {occ['id']}: ja: {occ['ja']}")
+            parts.append(f"         en: {occ['en']}")
     return "\n".join(parts)
 
 
@@ -103,21 +106,20 @@ def run_claude(prompt, model=None, timeout=600):
     if model:
         cmd += ["--model", model]
     try:
-        res = subprocess.run(
-            cmd, input=prompt, capture_output=True, text=True, timeout=timeout
-        )
+        res = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         raise RuntimeError(
             "`claude` CLI not found. Install Claude Code, or pass --gloss-json "
             "with a manually prepared gloss/alignment file."
-        )
+        ) from None
     if res.returncode != 0:
         raise RuntimeError(f"claude -p failed ({res.returncode}): {res.stderr[:500]}")
     return res.stdout
 
 
-def run_ollama(prompt, model, url="http://localhost:11434", timeout=120,
-               think=False, stats=None, temperature=0):
+def run_ollama(
+    prompt, model, url="http://localhost:11434", timeout=120, think=False, stats=None, temperature=0
+):
     """One chat call. Normal chunk latency is 8-15s; a long hang is a
     transport stall (a call can hang past the timeout under sustained load),
     so fail fast and retry the transport once. Persistent failure still raises
@@ -130,9 +132,10 @@ def run_ollama(prompt, model, url="http://localhost:11434", timeout=120,
     window or the answer is cut (done_reason == 'length'), num_ctx is doubled and
     the call retried until it fits (capped at OLLAMA_MAX_CTX). The common small
     chunk never pays; only a rare big chunk triggers one reload at a larger ctx."""
-    import time
     import os
+    import time
     import urllib.request
+
     base_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "2048"))
     max_ctx = int(os.environ.get("OLLAMA_MAX_CTX", "16384"))
     ANSWER_HEADROOM = 256  # tokens reserved for the JSON answer
@@ -141,25 +144,31 @@ def run_ollama(prompt, model, url="http://localhost:11434", timeout=120,
     t0 = time.time()
     num_ctx = base_ctx
     while True:
-        opts = {"temperature": temperature, "num_ctx": num_ctx,
-                "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "1024"))}
+        opts = {
+            "temperature": temperature,
+            "num_ctx": num_ctx,
+            "num_predict": int(os.environ.get("OLLAMA_NUM_PREDICT", "1024")),
+        }
         if num_ctx > base_ctx:
             # grown ctx => bigger KV; shed GPU layers so the aligner-tuned
             # num_gpu (maxed at base ctx) doesn't OOM on the grow-retry. Slower,
             # but the grow path is rare and correctness beats speed here.
             opts["num_gpu"] = int(os.environ.get("OLLAMA_GROW_NUM_GPU", "28"))
-        body = json.dumps({
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
-            "format": "json",
-            "think": think,
-            "options": opts,
-        }).encode()
+        body = json.dumps(
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "format": "json",
+                "think": think,
+                "options": opts,
+            }
+        ).encode()
         last = None
         for attempt in (1, 2):
             req = urllib.request.Request(
-                f"{url}/api/chat", data=body,
+                f"{url}/api/chat",
+                data=body,
                 headers={"Content-Type": "application/json"},
             )
             try:
@@ -182,29 +191,34 @@ def run_ollama(prompt, model, url="http://localhost:11434", timeout=120,
         pe = resp.get("prompt_eval_count", 0)
         if pe + ANSWER_HEADROOM > num_ctx and num_ctx < max_ctx:
             new_ctx = min(num_ctx * 2, max_ctx)
-            print(f"  ! prompt near context limit (prompt={pe} tok, "
-                  f"ctx={num_ctx}) -> retrying at num_ctx={new_ctx}")
+            print(
+                f"  ! prompt near context limit (prompt={pe} tok, "
+                f"ctx={num_ctx}) -> retrying at num_ctx={new_ctx}"
+            )
             num_ctx = new_ctx
             continue
         break
     if stats is not None:
-        stats.append({
-            "dt": time.time() - t0,
-            "out_tokens": resp.get("eval_count", 0),
-            "in_tokens": resp.get("prompt_eval_count", 0),
-            "eval_ns": resp.get("eval_duration", 0),
-            "prompt_ns": resp.get("prompt_eval_duration", 0),
-            "load_ns": resp.get("load_duration", 0),
-            "num_ctx": num_ctx,
-        })
+        stats.append(
+            {
+                "dt": time.time() - t0,
+                "out_tokens": resp.get("eval_count", 0),
+                "in_tokens": resp.get("prompt_eval_count", 0),
+                "eval_ns": resp.get("eval_duration", 0),
+                "prompt_ns": resp.get("prompt_eval_duration", 0),
+                "load_ns": resp.get("load_duration", 0),
+                "num_ctx": num_ctx,
+            }
+        )
     return resp["message"]["content"]
 
 
 OLLAMA_CHUNK = 10  # small batches: local models lazy-null on long tails
 
 
-def gloss_and_align(entries, model=None, backend="ollama",
-                    ollama_url="http://localhost:11434", think=False):
+def gloss_and_align(
+    entries, model=None, backend="ollama", ollama_url="http://localhost:11434", think=False
+):
     """Returns dict lemma -> {gloss, reading, matches: {id: en_word|None}}.
 
     claude backend: one batch call for the whole episode.
@@ -227,20 +241,22 @@ def gloss_and_align(entries, model=None, backend="ollama",
         occs = e["occurrences"]
         merged = None
         for i in range(0, len(occs), OLLAMA_CHUNK):
-            chunk_entry = {**e, "occurrences": occs[i:i + OLLAMA_CHUNK]}
+            chunk_entry = {**e, "occurrences": occs[i : i + OLLAMA_CHUNK]}
             prompt = build_prompt([chunk_entry], header=LEAN_HEADER)
             part = None
-            for attempt, temp in enumerate((0, 0.4)):  # retry w/ temp nudge:
-                raw = run_ollama(prompt, model=model, url=ollama_url,
-                                 think=think, stats=stats, temperature=temp)
+            for _attempt, temp in enumerate((0, 0.4)):  # retry w/ temp nudge:
+                raw = run_ollama(
+                    prompt, model=model, url=ollama_url, think=think, stats=stats, temperature=temp
+                )
                 try:
                     part = parse_result(_extract_json(raw))
                     break
                 except (ValueError, KeyError) as exc:
                     err = exc
             if part is None:
-                print(f"  ! {e['lemma']} chunk {i // OLLAMA_CHUNK}: "
-                      f"unparseable after retry ({err})")
+                print(
+                    f"  ! {e['lemma']} chunk {i // OLLAMA_CHUNK}: unparseable after retry ({err})"
+                )
                 continue
             info = part.get(e["lemma"])
             if info is None:  # model said skip for this chunk
@@ -262,10 +278,14 @@ def gloss_and_align(entries, model=None, backend="ollama",
         if info is None or any(info["matches"].values()):
             continue
         occs = e["occurrences"][:OLLAMA_CHUNK]  # one chunk is enough signal
-        raw = run_ollama(build_prompt([{**e, "occurrences": occs}],
-                                      header=LEAN_HEADER),
-                         model=model, url=ollama_url, think=think,
-                         stats=stats, temperature=0.45)
+        raw = run_ollama(
+            build_prompt([{**e, "occurrences": occs}], header=LEAN_HEADER),
+            model=model,
+            url=ollama_url,
+            think=think,
+            stats=stats,
+            temperature=0.45,
+        )
         try:
             part = parse_result(_extract_json(raw))
         except (ValueError, KeyError):
@@ -284,16 +304,20 @@ def gloss_and_align(entries, model=None, backend="ollama",
         gen_rate = toks / (gen_ns / 1e9) if gen_ns else 0
         pp_rate = in_toks / (pp_ns / 1e9) if pp_ns else 0
         ctx = stats[-1].get("num_ctx", "?")
-        print(f"  ollama: {len(stats)} calls, {total:.0f}s wall, "
-              f"{total / len(stats):.1f}s/call | "
-              f"gen {gen_rate:.1f} tok/s ({toks} out), "
-              f"prompt {pp_rate:.0f} tok/s ({in_toks} in), ctx={ctx}"
-              f"{' (think)' if think else ''}")
+        print(
+            f"  ollama: {len(stats)} calls, {total:.0f}s wall, "
+            f"{total / len(stats):.1f}s/call | "
+            f"gen {gen_rate:.1f} tok/s ({toks} out), "
+            f"prompt {pp_rate:.0f} tok/s ({in_toks} in), ctx={ctx}"
+            f"{' (think)' if think else ''}"
+        )
         # machine-readable line for the bench harness to grep
         if os.environ.get("BLL_BENCH"):
-            print(f"BENCHSTATS calls={len(stats)} wall={total:.2f} "
-                  f"gen_tok_s={gen_rate:.2f} prompt_tok_s={pp_rate:.2f} "
-                  f"out_tok={toks} in_tok={in_toks} ctx={ctx}")
+            print(
+                f"BENCHSTATS calls={len(stats)} wall={total:.2f} "
+                f"gen_tok_s={gen_rate:.2f} prompt_tok_s={pp_rate:.2f} "
+                f"out_tok={toks} in_tok={in_toks} ctx={ctx}"
+            )
     return out
 
 
@@ -307,8 +331,10 @@ def parse_result(data):
             "reading": w.get("reading") or None,
             # lenient: skip malformed match entries (missing id etc.) rather
             # than failing the whole chunk - small models garble occasionally
-            "matches": {m["id"]: m.get("en_word")
-                        for m in w.get("matches", [])
-                        if isinstance(m, dict) and isinstance(m.get("id"), int)},
+            "matches": {
+                m["id"]: m.get("en_word")
+                for m in w.get("matches", [])
+                if isinstance(m, dict) and isinstance(m.get("id"), int)
+            },
         }
     return out

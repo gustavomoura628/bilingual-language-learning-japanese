@@ -10,6 +10,7 @@ for speed.
 No GPU code here; the heavy alignment lives in ollama, reached over HTTP.
 Run:  bll serve   (see cli.cmd_serve)
 """
+
 import glob
 import json
 import os
@@ -20,11 +21,10 @@ import time
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse, StreamingResponse
 
-from . import db as dbm
 from . import bootstrap as bootstrapm
+from . import db as dbm
 from . import timeline as tl
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
@@ -33,18 +33,28 @@ DATA_DIR = os.path.dirname(os.path.abspath(dbm.DEFAULT_DB))
 # Argparse defaults, surfaced so the UI can prefill every form field. The GUI
 # defaults backend to ollama (the local, no-API-key path the release ships).
 DEFAULTS = {
-    "new_words": 2, "max_active": 2, "learning_threshold": 10,
-    "min_count": 2, "min_zipf": 3.0, "max_per_cue": 0,
-    "kana_threshold": 15, "decay_tokens": 6000, "note_threshold": 5,
-    "include_pos": "noun,adj", "backend": "ollama", "romaji": False,
+    "new_words": 2,
+    "max_active": 2,
+    "learning_threshold": 10,
+    "min_count": 2,
+    "min_zipf": 3.0,
+    "max_per_cue": 0,
+    "kana_threshold": 15,
+    "decay_tokens": 6000,
+    "note_threshold": 5,
+    "include_pos": "noun,adj",
+    "backend": "ollama",
+    "romaji": False,
     "no_dict": False,
 }
 
 # ---------------------------------------------------------------- app state
 
+
 class State:
     def __init__(self):
         self.active_db = os.environ.get("BLL_DB", dbm.DEFAULT_DB)
+
 
 STATE = State()
 
@@ -65,8 +75,10 @@ def read_conn(at=None):
 
 # ---------------------------------------------------------------- jobs
 
+
 class Job:
     """A streamed subprocess run of the bll CLI."""
+
     _seq = 0
     _lock = threading.Lock()
 
@@ -78,14 +90,19 @@ class Job:
         self.argv = argv
         self.db = db or STATE.active_db
         self.lines = []
-        self.status = "running"   # running | done | failed
+        self.status = "running"  # running | done | failed
         self.returncode = None
         self.started = datetime.now().isoformat(timespec="seconds")
 
     def to_meta(self):
-        return {"id": self.id, "label": self.label, "status": self.status,
-                "returncode": self.returncode, "started": self.started,
-                "nlines": len(self.lines)}
+        return {
+            "id": self.id,
+            "label": self.label,
+            "status": self.status,
+            "returncode": self.returncode,
+            "started": self.started,
+            "nlines": len(self.lines),
+        }
 
 
 JOBS = {}
@@ -106,8 +123,14 @@ def run_job(label, argv, db=None, then=None):
         env = dict(os.environ, BLL_DB=job.db, PYTHONUNBUFFERED="1")
         try:
             proc = subprocess.Popen(
-                argv, cwd=os.getcwd(), env=env, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, bufsize=1)
+                argv,
+                cwd=os.getcwd(),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
             for line in proc.stdout:
                 job.lines.append(line.rstrip("\n"))
             proc.wait()
@@ -141,13 +164,19 @@ def index():
 @app.get("/api/config")
 def get_config():
     campaigns = []
-    for p in sorted(glob.glob(os.path.join(DATA_DIR, "*.db")) +
-                    glob.glob(os.path.join(DATA_DIR, "*", "*.db"))):
+    for p in sorted(
+        glob.glob(os.path.join(DATA_DIR, "*.db")) + glob.glob(os.path.join(DATA_DIR, "*", "*.db"))
+    ):
         if f"{os.sep}backups{os.sep}" in p:  # snapshots aren't campaigns
             continue
         campaigns.append({"path": p, "name": os.path.relpath(p, DATA_DIR)})
-    return {"active_db": STATE.active_db, "data_dir": DATA_DIR,
-            "campaigns": campaigns, "defaults": DEFAULTS, "cwd": os.getcwd()}
+    return {
+        "active_db": STATE.active_db,
+        "data_dir": DATA_DIR,
+        "campaigns": campaigns,
+        "defaults": DEFAULTS,
+        "cwd": os.getcwd(),
+    }
 
 
 @app.post("/api/config")
@@ -167,28 +196,34 @@ def stats(learning_threshold: int = DEFAULTS["learning_threshold"], at: int = No
     # lifetime exposures reach the learning threshold (it no longer counts
     # against max-active). That, not the manual `known` flag, is graduation.
     learned = c.execute(
-        "SELECT COUNT(*) FROM words WHERE status='learning' AND exposures>=?",
-        (learning_threshold,)).fetchone()[0]
+        "SELECT COUNT(*) FROM words WHERE status='learning' AND exposures>=?", (learning_threshold,)
+    ).fetchone()[0]
     active = counts.get("learning", 0) - learned
-    eps = [dict(r) for r in c.execute(
-        "SELECT * FROM episodes ORDER BY id DESC LIMIT 20")]
-    total = c.execute(
-        "SELECT COALESCE(SUM(replacements),0) FROM episodes").fetchone()[0]
-    return {"learned": learned, "active": active,
-            "learning": counts.get("learning", 0),
-            "known": counts.get("known", 0),
-            "ignored": counts.get("ignored", 0),
-            "episodes": len(list(c.execute("SELECT id FROM episodes"))),
-            "injections": total, "recent": eps,
-            "clock": dbm.clock(c)}
+    eps = [dict(r) for r in c.execute("SELECT * FROM episodes ORDER BY id DESC LIMIT 20")]
+    total = c.execute("SELECT COALESCE(SUM(replacements),0) FROM episodes").fetchone()[0]
+    return {
+        "learned": learned,
+        "active": active,
+        "learning": counts.get("learning", 0),
+        "known": counts.get("known", 0),
+        "ignored": counts.get("ignored", 0),
+        "episodes": len(list(c.execute("SELECT id FROM episodes"))),
+        "injections": total,
+        "recent": eps,
+        "clock": dbm.clock(c),
+    }
 
 
 @app.get("/api/words")
-def words(status: str = "all", kana_threshold: int = DEFAULTS["kana_threshold"],
-          note_threshold: int = DEFAULTS["note_threshold"],
-          learning_threshold: int = DEFAULTS["learning_threshold"], at: int = None):
+def words(
+    status: str = "all",
+    kana_threshold: int = DEFAULTS["kana_threshold"],
+    note_threshold: int = DEFAULTS["note_threshold"],
+    learning_threshold: int = DEFAULTS["learning_threshold"],
+    at: int = None,
+):
     c = read_conn(at)
-    clk = dbm.clock(c)   # current forgetting-clock position (total JA tokens watched)
+    clk = dbm.clock(c)  # current forgetting-clock position (total JA tokens watched)
     q = "SELECT * FROM words"
     params = ()
     if status != "all":
@@ -201,22 +236,35 @@ def words(status: str = "all", kana_threshold: int = DEFAULTS["kana_threshold"],
         # fade position: 1 = freshly learning (fully annotated), 0 = graduated
         fade = max(0.0, 1.0 - (exp / kana_threshold)) if kana_threshold else 0.0
         from .cli import default_note
-        out.append({
-            "lemma": r["lemma"], "reading": r["reading"], "romaji": r["romaji"],
-            "gloss": r["gloss"], "pos": r["pos"], "status": r["status"],
-            "exposures": exp, "note": r["note"],
-            "note_effective": r["note"] or default_note(
-                r["lemma"], r["reading"], r["romaji"], r["gloss"]),
-            "fade": round(fade, 3),
-            "recency": r["last_seen_pos"],   # forgetting-clock pos at last injection
-            "gap": clk - r["last_seen_pos"], # JA tokens watched since last injection
-            "added": r["id"],                # monotonic insert order (add-to-DB recency)
-            "introduced_in": r["first_seen"],
-            "learned_in": r["learned_at_episode"],
-            "learned": r["status"] == "learning" and exp >= learning_threshold,
-            "stage": ("bare" if exp >= kana_threshold else
-                      "reading" if exp >= note_threshold else "note+reading"),
-        })
+
+        out.append(
+            {
+                "lemma": r["lemma"],
+                "reading": r["reading"],
+                "romaji": r["romaji"],
+                "gloss": r["gloss"],
+                "pos": r["pos"],
+                "status": r["status"],
+                "exposures": exp,
+                "note": r["note"],
+                "note_effective": r["note"]
+                or default_note(r["lemma"], r["reading"], r["romaji"], r["gloss"]),
+                "fade": round(fade, 3),
+                "recency": r["last_seen_pos"],  # forgetting-clock pos at last injection
+                "gap": clk - r["last_seen_pos"],  # JA tokens watched since last injection
+                "added": r["id"],  # monotonic insert order (add-to-DB recency)
+                "introduced_in": r["first_seen"],
+                "learned_in": r["learned_at_episode"],
+                "learned": r["status"] == "learning" and exp >= learning_threshold,
+                "stage": (
+                    "bare"
+                    if exp >= kana_threshold
+                    else "reading"
+                    if exp >= note_threshold
+                    else "note+reading"
+                ),
+            }
+        )
     return {"words": out}
 
 
@@ -227,7 +275,7 @@ def update_word(lemma: str, body: dict):
         raise HTTPException(404, f"{lemma} not in database")
     if "status" in body:
         dbm.set_status(c, lemma, body["status"])
-    if "note" in body:               # "" or null clears the override
+    if "note" in body:  # "" or null clears the override
         dbm.set_note(c, lemma, body["note"] or None)
     c.commit()
     return {"ok": True}
@@ -248,11 +296,20 @@ def episodes():
     c = conn()
     out = []
     for i, r in enumerate(c.execute("SELECT * FROM episodes ORDER BY id"), 1):
-        out.append({"id": r["id"], "position": i, "name": r["name"],
-                    "show": r["show"], "episode_no": r["episode_no"],
-                    "label": _ep_label(r["show"], r["episode_no"], r["name"]),
-                    "processed_at": r["processed_at"], "new_words": r["new_words"],
-                    "replacements": r["replacements"], "tokens": r["tokens"]})
+        out.append(
+            {
+                "id": r["id"],
+                "position": i,
+                "name": r["name"],
+                "show": r["show"],
+                "episode_no": r["episode_no"],
+                "label": _ep_label(r["show"], r["episode_no"], r["name"]),
+                "processed_at": r["processed_at"],
+                "new_words": r["new_words"],
+                "replacements": r["replacements"],
+                "tokens": r["tokens"],
+            }
+        )
     return {"episodes": out}
 
 
@@ -265,8 +322,9 @@ def update_episode(ep_id: int, body: dict):
     if "show" in body:
         c.execute("UPDATE episodes SET show=? WHERE id=?", (body["show"] or None, ep_id))
     if "episode_no" in body:
-        c.execute("UPDATE episodes SET episode_no=? WHERE id=?",
-                  (body["episode_no"] or None, ep_id))
+        c.execute(
+            "UPDATE episodes SET episode_no=? WHERE id=?", (body["episode_no"] or None, ep_id)
+        )
     c.commit()
     return {"ok": True}
 
@@ -279,19 +337,35 @@ def word_history(lemma: str):
     w = c.execute("SELECT * FROM words WHERE lemma=?", (lemma,)).fetchone()
     if not w:
         raise HTTPException(404, f"{lemma} not in database")
-    hist = [{"episode": _ep_label(r["show"], r["episode_no"], r["name"]),
-             "name": r["name"], "occurrences": r["occurrences"],
-             "replacements": r["replacements"], "processed_at": r["processed_at"]}
-            for r in c.execute(
-                "SELECT e.name, e.show, e.episode_no, e.processed_at, "
-                "s.occurrences, s.replacements FROM sightings s "
-                "JOIN episodes e ON e.id=s.episode_id WHERE s.word_id=? ORDER BY e.id",
-                (w["id"],))]
-    return {"lemma": lemma, "reading": w["reading"], "romaji": w["romaji"],
-            "gloss": w["gloss"], "status": w["status"], "exposures": w["exposures"],
-            "introduced_in": w["first_seen"], "learned_in": w["learned_at_episode"],
-            "learned_at": w["learned_at"], "episodes_seen": len(hist),
-            "variants": dbm.word_variants(c, w["id"]), "history": hist}
+    hist = [
+        {
+            "episode": _ep_label(r["show"], r["episode_no"], r["name"]),
+            "name": r["name"],
+            "occurrences": r["occurrences"],
+            "replacements": r["replacements"],
+            "processed_at": r["processed_at"],
+        }
+        for r in c.execute(
+            "SELECT e.name, e.show, e.episode_no, e.processed_at, "
+            "s.occurrences, s.replacements FROM sightings s "
+            "JOIN episodes e ON e.id=s.episode_id WHERE s.word_id=? ORDER BY e.id",
+            (w["id"],),
+        )
+    ]
+    return {
+        "lemma": lemma,
+        "reading": w["reading"],
+        "romaji": w["romaji"],
+        "gloss": w["gloss"],
+        "status": w["status"],
+        "exposures": w["exposures"],
+        "introduced_in": w["first_seen"],
+        "learned_in": w["learned_at_episode"],
+        "learned_at": w["learned_at"],
+        "episodes_seen": len(hist),
+        "variants": dbm.word_variants(c, w["id"]),
+        "history": hist,
+    }
 
 
 @app.get("/api/browse")
@@ -309,7 +383,7 @@ def browse(dir: str = None):
             elif name.lower().endswith((".srt", ".ass", ".ssa", ".vtt")):
                 subs.append(name)
     except PermissionError:
-        raise HTTPException(403, f"permission denied: {d}")
+        raise HTTPException(403, f"permission denied: {d}") from None
     return {"dir": d, "parent": os.path.dirname(d), "dirs": dirs, "subs": subs}
 
 
@@ -317,22 +391,38 @@ def _knob_args(body):
     """Translate UI knob values into bll process/season CLI flags."""
     a = []
     g = body.get
-    if g("new_words") is not None:        a += ["-n", g("new_words")]
-    if g("max_active") is not None:       a += ["--max-active", g("max_active")]
-    if g("learning_threshold") is not None: a += ["--learning-threshold", g("learning_threshold")]
-    if g("min_count") is not None:        a += ["--min-count", g("min_count")]
-    if g("min_zipf") is not None:         a += ["--min-zipf", g("min_zipf")]
-    if g("max_per_cue") is not None:      a += ["--max-per-cue", g("max_per_cue")]
-    if g("kana_threshold") is not None:   a += ["--kana-threshold", g("kana_threshold")]
-    if g("decay_tokens") is not None:     a += ["--decay-tokens", g("decay_tokens")]
-    if g("note_threshold") is not None:   a += ["--note-threshold", g("note_threshold")]
-    if g("include_pos"):                  a += ["--include-pos", g("include_pos")]
-    if g("backend"):                      a += ["--backend", g("backend")]
-    if g("model"):                        a += ["--model", g("model")]
-    if g("notes"):                        a += ["--notes", g("notes")]
-    if g("romaji"):                       a += ["--romaji"]
-    if g("no_dict"):                      a += ["--no-dict"]
-    if g("dry_run"):                      a += ["--dry-run"]
+    if g("new_words") is not None:
+        a += ["-n", g("new_words")]
+    if g("max_active") is not None:
+        a += ["--max-active", g("max_active")]
+    if g("learning_threshold") is not None:
+        a += ["--learning-threshold", g("learning_threshold")]
+    if g("min_count") is not None:
+        a += ["--min-count", g("min_count")]
+    if g("min_zipf") is not None:
+        a += ["--min-zipf", g("min_zipf")]
+    if g("max_per_cue") is not None:
+        a += ["--max-per-cue", g("max_per_cue")]
+    if g("kana_threshold") is not None:
+        a += ["--kana-threshold", g("kana_threshold")]
+    if g("decay_tokens") is not None:
+        a += ["--decay-tokens", g("decay_tokens")]
+    if g("note_threshold") is not None:
+        a += ["--note-threshold", g("note_threshold")]
+    if g("include_pos"):
+        a += ["--include-pos", g("include_pos")]
+    if g("backend"):
+        a += ["--backend", g("backend")]
+    if g("model"):
+        a += ["--model", g("model")]
+    if g("notes"):
+        a += ["--notes", g("notes")]
+    if g("romaji"):
+        a += ["--romaji"]
+    if g("no_dict"):
+        a += ["--no-dict"]
+    if g("dry_run"):
+        a += ["--dry-run"]
     return a
 
 
@@ -359,7 +449,7 @@ def timeline_branch(body: dict):
     try:
         bid = tl.branch(STATE.active_db, int(pos), name)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return {"ok": True, "branch": bid}
 
 
@@ -368,7 +458,7 @@ def timeline_switch(body: dict):
     try:
         tl.switch(STATE.active_db, body.get("branch"))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     return {"ok": True}
 
 
@@ -410,12 +500,15 @@ def season(body: dict):
         raise HTTPException(400, f"no JA/EN subtitle pairs found in {d}")
 
     knobs = _knob_args(body)
-    if body.get("show"):          # one show for the whole season; episode auto-parses
+    if body.get("show"):  # one show for the whole season; episode auto-parses
         knobs += ["--show", body["show"]]
     install_dir = body.get("install_dir")
     # one umbrella job whose worker drives the per-episode CLI calls in order
-    job = Job(f"season {os.path.basename(d.rstrip('/'))} ({len(pairs)} eps)",
-              ["<season-loop>"], db=STATE.active_db)
+    job = Job(
+        f"season {os.path.basename(d.rstrip('/'))} ({len(pairs)} eps)",
+        ["<season-loop>"],
+        db=STATE.active_db,
+    )
     JOBS[job.id] = job
 
     def _worker():
@@ -430,10 +523,15 @@ def season(body: dict):
             if out:
                 argv += ["-o", out]
             try:
-                proc = subprocess.Popen(argv, cwd=os.getcwd(), env=env,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True,
-                                        bufsize=1)
+                proc = subprocess.Popen(
+                    argv,
+                    cwd=os.getcwd(),
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                )
                 for line in proc.stdout:
                     job.lines.append(line.rstrip("\n"))
                 proc.wait()
@@ -441,7 +539,7 @@ def season(body: dict):
                     ok = False
                     job.lines.append(f"[episode failed rc={proc.returncode}] stopping")
                     break
-                try:               # snapshot this episode as a seekable position
+                try:  # snapshot this episode as a seekable position
                     tl.record(job.db)
                 except Exception as e:  # noqa: BLE001
                     job.lines.append(f"[timeline] snapshot skipped: {e}")
@@ -451,8 +549,7 @@ def season(body: dict):
                 break
         job.status = "done" if ok else "failed"
         job.returncode = 0 if ok else 1
-        job.lines.append("=== season batch complete ===" if ok
-                         else "=== season batch FAILED ===")
+        job.lines.append("=== season batch complete ===" if ok else "=== season batch FAILED ===")
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"job_id": job.id, "episodes": [os.path.basename(j) for j, _ in pairs]}
@@ -498,9 +595,14 @@ def ollama_status():
         return {"reachable": False, "profile_ready": False, "profile": bootstrapm.PROFILE}
     names = bootstrapm._tags(url)
     ready = bootstrapm.PROFILE in names or bootstrapm.PROFILE.split(":")[0] in names
-    return {"reachable": True, "url": url, "profile": bootstrapm.PROFILE,
-            "profile_ready": ready, "base": bootstrapm.BASE_MODEL,
-            "base_present": bootstrapm.BASE_MODEL in names}
+    return {
+        "reachable": True,
+        "url": url,
+        "profile": bootstrapm.PROFILE,
+        "profile_ready": ready,
+        "base": bootstrapm.BASE_MODEL,
+        "base_present": bootstrapm.BASE_MODEL in names,
+    }
 
 
 @app.get("/api/jobs")
@@ -529,7 +631,9 @@ def stream_job(job_id: str):
                 yield f"data: {json.dumps(j.lines[i])}\n\n"
                 i += 1
             if j.status != "running":
-                yield f"event: end\ndata: {json.dumps({'status': j.status, 'rc': j.returncode})}\n\n"
+                yield (
+                    f"event: end\ndata: {json.dumps({'status': j.status, 'rc': j.returncode})}\n\n"
+                )
                 return
             time.sleep(0.25)
 

@@ -1,4 +1,5 @@
 """bll command-line interface."""
+
 import argparse
 import json
 import os
@@ -9,10 +10,10 @@ import pysubs2
 
 from . import db as dbm
 from . import gloss as glossm
-from . import jmdict
-from . import jp
+from . import jmdict, jp
 
 # ---------------------------------------------------------------- helpers
+
 
 def plaintext(event):
     return event.plaintext.replace("\n", " ").strip()
@@ -23,10 +24,7 @@ def overlapping(en_events, start, end, slack=1200):
 
     If none overlap (slightly offset subtitles, a known cause of missed swaps),
     fall back to the nearest event within `slack` ms."""
-    hits = [
-        i for i, ev in enumerate(en_events)
-        if max(ev.start, start) < min(ev.end, end)
-    ]
+    hits = [i for i, ev in enumerate(en_events) if max(ev.start, start) < min(ev.end, end)]
     if hits:
         return hits
     best, best_gap = None, slack + 1
@@ -76,6 +74,7 @@ def injectable_counts(ja_subs, en_subs, words, jm):
 def _en_counterpart(ja_path, season_dir):
     """Find the EN subtitle sibling of a JA file (foo.ja.srt -> foo.en.*)."""
     import glob
+
     base = os.path.basename(ja_path)
     stem = base.split(".ja.")[0] if ".ja." in base else os.path.splitext(base)[0]
     for c in sorted(glob.glob(os.path.join(season_dir, stem + ".en.*"))):
@@ -125,13 +124,17 @@ LAYERS = ("plain", "kana", "adaptive", "answers")
 def layer_paths(out):
     """adaptive keeps the given name; siblings get .plain/.kana/.answers infixes."""
     base, ext = os.path.splitext(out)
-    return {"adaptive": out, "plain": f"{base}.plain{ext}",
-            "kana": f"{base}.kana{ext}", "answers": f"{base}.answers{ext}"}
+    return {
+        "adaptive": out,
+        "plain": f"{base}.plain{ext}",
+        "kana": f"{base}.kana{ext}",
+        "answers": f"{base}.answers{ext}",
+    }
 
 
 def _note_width(s):
     """Rough on-screen width: CJK/full-width glyphs count as 2, the rest as 1."""
-    return sum(2 if ord(c) > 0x2e7f else 1 for c in s)
+    return sum(2 if ord(c) > 0x2E7F else 1 for c in s)
 
 
 def _wrap_note(text, width=30):
@@ -149,8 +152,9 @@ def _wrap_note(text, width=30):
     return r"\N".join(lines)
 
 
-def render_plan(en_path, plan, out, threshold, decay=None, romaji=False,
-                notes=None, note_threshold=5):
+def render_plan(
+    en_path, plan, out, threshold, decay=None, romaji=False, notes=None, note_threshold=5
+):
     """Render the subtitle layers from an injection plan.
     Returns {layer: path}. Injections are applied in plan order so repeated
     words in one cue resolve identically across layers.
@@ -170,8 +174,7 @@ def render_plan(en_path, plan, out, threshold, decay=None, romaji=False,
             repl = fmt_injection(inj, layer, threshold, decay, romaji)
             ok = replace_in_event(subs[inj["cue"]], inj["en_word"], repl)
             if not ok:  # cannot happen if plan matches en_path
-                raise RuntimeError(
-                    f"plan/en mismatch: {inj} not applicable to {en_path}")
+                raise RuntimeError(f"plan/en mismatch: {inj} not applicable to {en_path}")
             # Note fires while the word is still new (lifetime exposures below
             # note_threshold) on any layer that shows its reading; the answers
             # layer shows every note. repl != lemma ensures it's actually
@@ -182,12 +185,13 @@ def render_plan(en_path, plan, out, threshold, decay=None, romaji=False,
             note_text = inj.get("note") or (notes.get(lemma) if notes else None)
             # repeat entries are the same exposure already noted by the primary
             # injection in this cue -- don't stack a second {\an8} note line.
-            if note_text and layer != "plain" and repl != lemma and show \
-                    and not inj.get("repeat"):
+            if note_text and layer != "plain" and repl != lemma and show and not inj.get("repeat"):
                 ev = subs[inj["cue"]]
-                subs.append(pysubs2.SSAEvent(
-                    start=ev.start, end=ev.end,
-                    text=r"{\an8\i1}" + _wrap_note(note_text)))
+                subs.append(
+                    pysubs2.SSAEvent(
+                        start=ev.start, end=ev.end, text=r"{\an8\i1}" + _wrap_note(note_text)
+                    )
+                )
         subs.save(path)
     return paths
 
@@ -199,15 +203,17 @@ def parse_show_episode(path):
     ("A Show", "04"). Falls back to the parent folder when the name carries no
     title. Both are editable in the UI / overridable with --show/--episode."""
     base = os.path.basename(path)
-    stem = re.sub(r"\.(ja|en)\..+$", "", base)            # drop .ja./.en.<ext>
+    stem = re.sub(r"\.(ja|en)\..+$", "", base)  # drop .ja./.en.<ext>
     stem = re.sub(r"\.(srt|ass|ssa|vtt|bll)$", "", stem)  # or a bare extension
-    clean = re.sub(r"[\[(][^\])]*[\])]", " ", stem)       # drop [..] and (..) tags
+    clean = re.sub(r"[\[(][^\])]*[\])]", " ", stem)  # drop [..] and (..) tags
     clean = re.sub(r"[._]+", " ", clean)
-    m = (re.search(r"s\d+\s*e\s*0*(\d+)", clean, re.I)
-         or re.search(r"(?:\bep|\bepisode|[-–—]\s*|\bx|\be)\s*0*(\d+)\b", clean, re.I)
-         or re.search(r"\b0*(\d{1,3})\b", clean))
+    m = (
+        re.search(r"s\d+\s*e\s*0*(\d+)", clean, re.I)
+        or re.search(r"(?:\bep|\bepisode|[-–—]\s*|\bx|\be)\s*0*(\d+)\b", clean, re.I)
+        or re.search(r"\b0*(\d{1,3})\b", clean)
+    )
     episode_no = m.group(1) if m else None
-    title = (clean[:m.start()] if m else clean)
+    title = clean[: m.start()] if m else clean
     title = re.sub(r"\s+", " ", title).strip(" -–—_")
     show = title or os.path.basename(os.path.dirname(os.path.abspath(path))) or None
     return show, episode_no
@@ -247,8 +253,7 @@ def resolve_notes(conn, lemmas, file_notes=None, use_romaji=True):
     for r in conn.execute("SELECT lemma, reading, romaji, gloss, note FROM words"):
         if r["lemma"] not in want:
             continue
-        n = r["note"] or default_note(r["lemma"], r["reading"], r["romaji"],
-                                      r["gloss"], use_romaji)
+        n = r["note"] or default_note(r["lemma"], r["reading"], r["romaji"], r["gloss"], use_romaji)
         if n:
             notes[r["lemma"]] = n
     if file_notes:
@@ -256,8 +261,7 @@ def resolve_notes(conn, lemmas, file_notes=None, use_romaji=True):
     return notes
 
 
-def apply_sense_first(injections, jm, conn=None, file_notes=None,
-                      use_romaji=False):
+def apply_sense_first(injections, jm, conn=None, file_notes=None, use_romaji=False):
     """Per-injection heteronym disambiguation, display only.
 
     For a genuine heteronym - a surface with more than one distinct primary
@@ -278,8 +282,7 @@ def apply_sense_first(injections, jm, conn=None, file_notes=None,
     lifecycle mismatches."""
     overrides = {}
     if conn is not None:
-        for r in conn.execute(
-                "SELECT lemma, note FROM words WHERE note IS NOT NULL"):
+        for r in conn.execute("SELECT lemma, note FROM words WHERE note IS NOT NULL"):
             overrides[r["lemma"]] = r["note"]
     file_notes = file_notes or {}
     changed = 0
@@ -300,9 +303,13 @@ def apply_sense_first(injections, jm, conn=None, file_notes=None,
         elif lemma in overrides:
             note = overrides[lemma]
         else:
-            note = default_note(lemma, reading, jp.to_romaji(reading),
-                                jmdict.canonical_gloss([e], reading=reading),
-                                use_romaji)
+            note = default_note(
+                lemma,
+                reading,
+                jp.to_romaji(reading),
+                jmdict.canonical_gloss([e], reading=reading),
+                use_romaji,
+            )
         if note:
             inj["note"] = note
         changed += 1
@@ -315,10 +322,9 @@ def replace_in_event(event, en_word, replacement):
     Tries the raw text first (preserves styling tags), falls back to
     plaintext if tags break the match. Returns True on success.
     """
+
     def attempt(text, flags=0):
-        pat = re.compile(
-            r"(?<![A-Za-z])" + re.escape(en_word) + r"(?![A-Za-z])", flags
-        )
+        pat = re.compile(r"(?<![A-Za-z])" + re.escape(en_word) + r"(?![A-Za-z])", flags)
         return pat.subn(replacement.replace("\\", "\\\\"), text, count=1)
 
     new, n = attempt(event.text)
@@ -338,6 +344,7 @@ def replace_in_event(event, en_word, replacement):
 
 
 # ---------------------------------------------------------------- process
+
 
 def cmd_process(args):
     if args.backend == "ollama" and not args.model:
@@ -359,8 +366,8 @@ def cmd_process(args):
         jm = jmdict.load_merged()  # auto-downloads on first run
 
     db_words = dbm.all_words(conn)
-    known = {l for l, r in db_words.items() if r["status"] in ("known", "ignored")}
-    learning = {l for l, r in db_words.items() if r["status"] == "learning"}
+    known = {lemma for lemma, r in db_words.items() if r["status"] in ("known", "ignored")}
+    learning = {lemma for lemma, r in db_words.items() if r["status"] == "learning"}
 
     ja_lines = [jp.clean_sdh(plaintext(ev)) for ev in ja_subs]
     # jm enables compound merging; keep=learning so already-learned
@@ -374,7 +381,7 @@ def cmd_process(args):
     ep_tokens = jp.count_tokens(ja_lines)
 
     # Words still being learned that appear in this episode -> always inject.
-    active = [words[l] for l in learning if l in words]
+    active = [words[lemma] for lemma in learning if lemma in words]
     for w in active:  # prefer DB reading/romaji (may have been LLM-corrected)
         row = db_words[w["lemma"]]
         if row["reading"]:
@@ -391,8 +398,7 @@ def cmd_process(args):
     # self-pacing (room reopens as words consolidate), no stall (dormant
     # words don't appear, so don't block).
     active_load = sum(
-        1 for w in active
-        if db_words[w["lemma"]]["exposures"] < args.learning_threshold
+        1 for w in active if db_words[w["lemma"]]["exposures"] < args.learning_threshold
     )
     # Per-episode introduction cap. Defaults to --max-active so the load gate
     # is the sole limiter: freed slots can be refilled the same episode, which
@@ -402,23 +408,25 @@ def cmd_process(args):
     new_budget = max(0, args.max_active - active_load)
     new_budget = min(per_ep_cap, new_budget)
     if active_load >= args.max_active:
-        print(f"Pace gate: {active_load} unconsolidated words already on "
-              f"screen (cap {args.max_active}); 0 new admitted.")
+        print(
+            f"Pace gate: {active_load} unconsolidated words already on "
+            f"screen (cap {args.max_active}); 0 new admitted."
+        )
     # Injection-aware counts for this episode: the number of occurrences
     # that will actually inject (overlapping EN cue has a canonical gloss),
     # used as the selection signal instead of raw occurrences. No LLM.
-    inj_now = ({} if args.no_dict else
-               injectable_counts(ja_subs, en_subs, words, jm))
+    inj_now = {} if args.no_dict else injectable_counts(ja_subs, en_subs, words, jm)
     for lemma, w in words.items():
         w["inj"] = inj_now.get(lemma, w["count"])
 
     # Season lookahead. Build the per-future-episode trajectory (in order,
     # after this file) in injectable terms so time-to-consolidate reflects
     # real injection speed, not phantom occurrence frequency.
-    future = None          # flat rest-of-season injectable totals (--pick)
-    future_traj = None     # lemma -> [injectable per future episode]
+    future = None  # flat rest-of-season injectable totals (--pick)
+    future_traj = None  # lemma -> [injectable per future episode]
     if args.season_dir:
         import glob
+
         sibs = sorted(glob.glob(os.path.join(args.season_dir, "*.ja.*")))
         cur = os.path.abspath(args.ja_sub)
         after, seen = [], False
@@ -449,21 +457,29 @@ def cmd_process(args):
                 c = finj.get(lemma, 0) if finj is not None else info["count"]
                 future[lemma] = future.get(lemma, 0) + c
                 future_traj.setdefault(lemma, [0] * len(after))[i] = c
-        print(f"Lookahead: {len(after)} future episodes "
-              f"(injection-aware value-density)")
+        print(f"Lookahead: {len(after)} future episodes (injection-aware value-density)")
 
     # Fresh picks: oversample 2x, because some candidates will turn out to be
     # tokenization artifacts or unalignable; the best n that align are kept.
     # new_budget caps how many are actually kept.
     pool = new_budget if args.dry_run else max(new_budget * 2, new_budget + 2)
     allowed_pos = {jp.POS_MAP[p.strip()] for p in args.include_pos.split(",")}
-    new = jp.select_new(
-        words, exclude=known | learning, n=pool,
-        min_count=args.min_count, min_zipf=args.min_zipf,
-        allowed_pos=allowed_pos, future=future, future_traj=future_traj,
-        load_threshold=args.learning_threshold,
-        count_field=("count" if args.no_dict else "inj"),
-    ) if new_budget else []
+    new = (
+        jp.select_new(
+            words,
+            exclude=known | learning,
+            n=pool,
+            min_count=args.min_count,
+            min_zipf=args.min_zipf,
+            allowed_pos=allowed_pos,
+            future=future,
+            future_traj=future_traj,
+            load_threshold=args.learning_threshold,
+            count_field=("count" if args.no_dict else "inj"),
+        )
+        if new_budget
+        else []
+    )
     # New words must exist in the curated dictionary at all - a lemma JMdict
     # has never heard of is usually a tokenizer artifact (a fragment split off
     # a proper noun).
@@ -477,32 +493,39 @@ def cmd_process(args):
     # curator can reconsider (e.g. a character name suppressed too aggressively,
     # or one you want back). Re-runs selection with ignored words allowed in.
     if jm is not None and new_budget:
-        ignored = {l for l, r in db_words.items() if r["status"] == "ignored"}
-        known_only = {l for l, r in db_words.items() if r["status"] == "known"}
+        ignored = {lemma for lemma, r in db_words.items() if r["status"] == "ignored"}
+        known_only = {lemma for lemma, r in db_words.items() if r["status"] == "known"}
         if ignored:
             would = jp.select_new(
-                words, exclude=known_only | learning, n=new_budget,
-                min_count=args.min_count, min_zipf=args.min_zipf,
-                allowed_pos=allowed_pos, future=future, future_traj=future_traj,
+                words,
+                exclude=known_only | learning,
+                n=new_budget,
+                min_count=args.min_count,
+                min_zipf=args.min_zipf,
+                allowed_pos=allowed_pos,
+                future=future,
+                future_traj=future_traj,
                 load_threshold=args.learning_threshold,
-                count_field=("count" if args.no_dict else "inj"))
+                count_field=("count" if args.no_dict else "inj"),
+            )
             hit = [w for w in would if w["lemma"] in ignored and w["lemma"] in jm]
             if hit:
-                tags = ", ".join(f"{w['lemma']} (x{w.get('inj', w['count'])})"
-                                 for w in hit)
-                print(f"IGNORED WORDS (would be picked — override with "
-                      f"`bll learning <word>`): {tags}")
+                tags = ", ".join(f"{w['lemma']} (x{w.get('inj', w['count'])})" for w in hit)
+                print(
+                    f"IGNORED WORDS (would be picked — override with `bll learning <word>`): {tags}"
+                )
 
     # Interactive pick: the learner chooses which candidates to learn
     # (interest predicts retention). Numbered list; empty input keeps the
     # automatic top-n.
     if args.pick and new:
-        print("\nCandidates (pick numbers, empty = auto top "
-              f"{new_budget}):")
+        print(f"\nCandidates (pick numbers, empty = auto top {new_budget}):")
         for i, w in enumerate(new, 1):
             fnote = f", season x{future[w['lemma']]}" if future else ""
-            print(f"  {i}. {w['lemma']} ({w['reading']})  "
-                  f"x{w['count']} this episode{fnote}, zipf {w['zipf']:.1f}")
+            print(
+                f"  {i}. {w['lemma']} ({w['reading']})  "
+                f"x{w['count']} this episode{fnote}, zipf {w['zipf']:.1f}"
+            )
         try:
             raw = input("> ").strip()
         except EOFError:
@@ -521,9 +544,9 @@ def cmd_process(args):
     # lines would otherwise multiply occurrences several-fold; concatenating
     # EN for matching avoids that).
     occ_id = 0
-    entries = []        # for the gloss/alignment prompt
-    occurrences = {}    # id -> (lemma, tuple of en idxs)
-    occ_text = {}       # id -> (ja_line, en_text), for the align cache
+    entries = []  # for the gloss/alignment prompt
+    occurrences = {}  # id -> (lemma, tuple of en idxs)
+    occ_text = {}  # id -> (ja_line, en_text), for the align cache
     for w in selected:
         occs = []
         seen = set()
@@ -534,13 +557,17 @@ def cmd_process(args):
                 continue
             seen.add(ens)
             occ_id += 1
-            occs.append({"id": occ_id, "ja": ja_lines[ci],
-                         "en": " ".join(plaintext(en_subs[ei]) for ei in ens)})
+            occs.append(
+                {
+                    "id": occ_id,
+                    "ja": ja_lines[ci],
+                    "en": " ".join(plaintext(en_subs[ei]) for ei in ens),
+                }
+            )
             occurrences[occ_id] = (w["lemma"], ens)
             occ_text[occ_id] = (occs[-1]["ja"], occs[-1]["en"])
         if occs:
-            entries.append({"lemma": w["lemma"], "reading": w["reading"],
-                            "occurrences": occs})
+            entries.append({"lemma": w["lemma"], "reading": w["reading"], "occurrences": occs})
     sel_by_lemma = {w["lemma"]: w for w in selected}
     entries = [e for e in entries if e["occurrences"]]
 
@@ -550,8 +577,9 @@ def cmd_process(args):
     print(f"Selected {len(new)} {label} + {len(active)} in-progress words:")
     for w in selected:
         tag = "NEW " if w["lemma"] in new_lemmas else "     "
-        print(f"  {tag}{w['lemma']} ({w['romaji']})  "
-              f"x{w['count']} in episode, zipf {w['zipf']:.1f}")
+        print(
+            f"  {tag}{w['lemma']} ({w['romaji']})  x{w['count']} in episode, zipf {w['zipf']:.1f}"
+        )
 
     if args.dry_run:
         print("\n--dry-run: no subtitle written, no DB changes, no gloss call.")
@@ -563,8 +591,8 @@ def cmd_process(args):
     # model. Backtesting showed false positives came only from words this
     # gate excludes, and recall on stable words beats the model (no lazy nulls).
     STABLE_MIN = 15
-    stable = {}   # lemma -> set of variant strings
-    claims = {}   # variant(lower) -> lemmas with it in their history
+    stable = {}  # lemma -> set of variant strings
+    claims = {}  # variant(lower) -> lemmas with it in their history
     if jm is not None:
         for w in selected:
             row = db_words.get(w["lemma"])
@@ -581,8 +609,7 @@ def cmd_process(args):
             sub = jmdict.reading_entries(ent, row["reading"])
             if len({jmdict._lemmatize(v) for v in vs}) > 2:
                 continue  # wide cluster -> polysemy risk -> oracle forever
-            if all(jmdict.gloss_match(f"{w['lemma']}@{row['reading']}",
-                                      sub, v) for v in vs):
+            if all(jmdict.gloss_match(f"{w['lemma']}@{row['reading']}", sub, v) for v in vs):
                 stable[w["lemma"]] = set(vs)
 
     def tier_match(lemma, ja_line, en_text):
@@ -591,8 +618,7 @@ def cmd_process(args):
         if ja_line.count(lemma) != 1:
             return None  # word not unique in JA cue
         for v in stable[lemma]:
-            pat = re.compile(r"(?<![A-Za-z])" + re.escape(v) +
-                             r"(?![A-Za-z])", re.IGNORECASE)
+            pat = re.compile(r"(?<![A-Za-z])" + re.escape(v) + r"(?![A-Za-z])", re.IGNORECASE)
             hits = pat.findall(en_text)
             if len(hits) != 1:
                 if hits:
@@ -633,8 +659,10 @@ def cmd_process(args):
         if cached:
             print(f"Cache: {len(cached)} occurrences served from align_cache")
         if tiered:
-            print(f"Tier: {len(tiered)} occurrences resolved mechanically "
-                  f"({len(stable)} stable words)")
+            print(
+                f"Tier: {len(tiered)} occurrences resolved mechanically "
+                f"({len(stable)} stable words)"
+            )
         aligned = {}
         if lean:
             n_occ = sum(len(e["occurrences"]) for e in lean)
@@ -644,12 +672,15 @@ def cmd_process(args):
             # path is the choice but unreachable, stop with guidance rather than
             # silently falling back to a paid backend.
             if args.backend == "claude":
-                print("WARNING: --backend claude uses the Claude CLI and "
-                      "spends your Claude tokens to align this episode. Use "
-                      "--backend ollama for the local, no-cost path.",
-                      file=sys.stderr)
+                print(
+                    "WARNING: --backend claude uses the Claude CLI and "
+                    "spends your Claude tokens to align this episode. Use "
+                    "--backend ollama for the local, no-cost path.",
+                    file=sys.stderr,
+                )
             else:
                 from . import bootstrap
+
                 if not bootstrap.reachable(args.ollama_url):
                     print(
                         f"error: no reachable ollama at {args.ollama_url}; "
@@ -658,19 +689,22 @@ def cmd_process(args):
                         "(install: https://ollama.com), then `bll bootstrap`\n"
                         "  - or opt in to the paid path:  --backend claude  "
                         "(spends your Claude tokens)",
-                        file=sys.stderr)
+                        file=sys.stderr,
+                    )
                     return 1
             print(f"\nAligning {n_occ} occurrences via {args.backend}...")
-            aligned = glossm.gloss_and_align(lean, model=args.model,
-                                             backend=args.backend,
-                                             ollama_url=args.ollama_url,
-                                             think=args.think)
+            aligned = glossm.gloss_and_align(
+                lean,
+                model=args.model,
+                backend=args.backend,
+                ollama_url=args.ollama_url,
+                think=args.think,
+            )
         # Merge cached judgments (already post-veto when stored) and
         # mechanically tiered matches (canonical by construction).
         for oid, enw in list(cached.items()) + list(tiered.items()):
             lem = occurrences[oid][0]
-            info = aligned.setdefault(
-                lem, {"gloss": "", "reading": None, "matches": {}})
+            info = aligned.setdefault(lem, {"gloss": "", "reading": None, "matches": {}})
             info["matches"].setdefault(oid, enw)
 
     # Dictionary conjunction: a match fires only if the aligner and JMdict
@@ -695,14 +729,13 @@ def cmd_process(args):
                     info["matches"][oid] = None
                     vetoed.setdefault(lemma, set()).add(m)
                 else:
-                    info["matches"][oid] = m[span[0]:span[1]]
+                    info["matches"][oid] = m[span[0] : span[1]]
             # Prefer the curated gloss over the model's for storage/report,
             # from the entry matching this word's reading, rotated so the
             # sense actually matched in this episode comes first.
             w = sel_by_lemma.get(lemma)
             survivors = {m for m in info["matches"].values() if m}
-            cg = jmdict.canonical_gloss(ent, w["reading"] if w else None,
-                                        prefer=survivors)
+            cg = jmdict.canonical_gloss(ent, w["reading"] if w else None, prefer=survivors)
             if cg:
                 info["gloss"] = cg
     if vetoed:
@@ -753,24 +786,23 @@ def cmd_process(args):
     # Build the injection plan. en_subs serves as a probe copy: trial
     # replacements consume matched spans so repeated words in a cue resolve
     # to successive positions; the probe itself is never saved.
-    per_cue = {}          # en_idx -> count
-    replaced = {}         # lemma -> count
-    plan = []             # {cue, en_word, lemma, reading, exposure_before, recency_gap}
+    per_cue = {}  # en_idx -> count
+    replaced = {}  # lemma -> count
+    plan = []  # {cue, en_word, lemma, reading, exposure_before, recency_gap}
     exposure_ctr = {
-        w["lemma"]: (db_words[w["lemma"]]["exposures"]
-                     if w["lemma"] in db_words else 0)
+        w["lemma"]: (db_words[w["lemma"]]["exposures"] if w["lemma"] in db_words else 0)
         for w in selected
     }
     # Per-word staleness at the start of this file = tokens of content
     # since the word was last injected. New words have gap 0.
     recency_gap = {
-        w["lemma"]: (clock_before - db_words[w["lemma"]]["last_seen_pos"]
-                     if w["lemma"] in db_words else 0)
+        w["lemma"]: (
+            clock_before - db_words[w["lemma"]]["last_seen_pos"] if w["lemma"] in db_words else 0
+        )
         for w in selected
     }
     # 0 / negative / None means unlimited swaps per cue.
-    cue_cap = (args.max_per_cue if args.max_per_cue and args.max_per_cue > 0
-               else float("inf"))
+    cue_cap = args.max_per_cue if args.max_per_cue and args.max_per_cue > 0 else float("inf")
     for oid, (lemma, ens) in sorted(occurrences.items()):
         if lemma not in sel_by_lemma:  # oversampled candidate not kept
             continue
@@ -803,12 +835,16 @@ def cmd_process(args):
                     continue
                 if replace_in_event(en_subs[ei], c, lemma):  # probe (primary)
                     exp0 = exposure_ctr[lemma]
-                    plan.append({
-                        "cue": ei, "en_word": c, "lemma": lemma,
-                        "reading": word["reading"],
-                        "exposure_before": exp0,
-                        "recency_gap": recency_gap[lemma],
-                    })
+                    plan.append(
+                        {
+                            "cue": ei,
+                            "en_word": c,
+                            "lemma": lemma,
+                            "reading": word["reading"],
+                            "exposure_before": exp0,
+                            "recency_gap": recency_gap[lemma],
+                        }
+                    )
                     exposure_ctr[lemma] += 1
                     per_cue[ei] = per_cue.get(ei, 0) + 1
                     replaced[lemma] = replaced.get(lemma, 0) + 1
@@ -816,15 +852,18 @@ def cmd_process(args):
                     # the per-cue cap. These are display only: same exposure, so
                     # they do not bump the learning counter (exposure_ctr/
                     # replaced) and share exp0's fade stage.
-                    while (per_cue.get(ei, 0) < cue_cap
-                           and replace_in_event(en_subs[ei], c, lemma)):
-                        plan.append({
-                            "cue": ei, "en_word": c, "lemma": lemma,
-                            "reading": word["reading"],
-                            "exposure_before": exp0,
-                            "recency_gap": recency_gap[lemma],
-                            "repeat": True,
-                        })
+                    while per_cue.get(ei, 0) < cue_cap and replace_in_event(en_subs[ei], c, lemma):
+                        plan.append(
+                            {
+                                "cue": ei,
+                                "en_word": c,
+                                "lemma": lemma,
+                                "reading": word["reading"],
+                                "exposure_before": exp0,
+                                "recency_gap": recency_gap[lemma],
+                                "repeat": True,
+                            }
+                        )
                         per_cue[ei] = per_cue.get(ei, 0) + 1
                     done = True
                     break
@@ -835,23 +874,39 @@ def cmd_process(args):
     # Auto-notes: every injected word gets a "romaji = gloss" hint mechanically,
     # overridable per-word (words.note) or via --notes. Baked into the plan so
     # `bll render` reproduces them with no DB.
-    notes = resolve_notes(conn, {inj["lemma"] for inj in plan},
-                          load_notes(args.notes), use_romaji=args.romaji)
+    notes = resolve_notes(
+        conn, {inj["lemma"] for inj in plan}, load_notes(args.notes), use_romaji=args.romaji
+    )
     # Per-injection heteronym reading/note, anchored on the English each
     # occurrence was aligned to (角 -> つの over "horn", かど over "corner").
     # No-op for every non-heteronym injection.
-    apply_sense_first(plan, jm, conn, load_notes(args.notes),
-                      use_romaji=args.romaji)
-    paths = render_plan(args.en_sub, plan, out, args.kana_threshold,
-                        args.decay_tokens, romaji=args.romaji, notes=notes,
-                        note_threshold=args.note_threshold)
+    apply_sense_first(plan, jm, conn, load_notes(args.notes), use_romaji=args.romaji)
+    paths = render_plan(
+        args.en_sub,
+        plan,
+        out,
+        args.kana_threshold,
+        args.decay_tokens,
+        romaji=args.romaji,
+        notes=notes,
+        note_threshold=args.note_threshold,
+    )
     plan_path = os.path.splitext(out)[0] + ".plan.json"
     with open(plan_path, "w", encoding="utf-8") as f:
-        json.dump({"episode": episode, "en_file": args.en_sub,
-                   "kana_threshold": args.kana_threshold,
-                   "decay_tokens": args.decay_tokens, "romaji": args.romaji,
-                   "notes": notes, "injections": plan}, f,
-                  ensure_ascii=False, indent=1)
+        json.dump(
+            {
+                "episode": episode,
+                "en_file": args.en_sub,
+                "kana_threshold": args.kana_threshold,
+                "decay_tokens": args.decay_tokens,
+                "romaji": args.romaji,
+                "notes": notes,
+                "injections": plan,
+            },
+            f,
+            ensure_ascii=False,
+            indent=1,
+        )
 
     # DB bookkeeping.
     # New words with zero successful injections are usually tokenization
@@ -865,15 +920,22 @@ def cmd_process(args):
     auto_show, auto_ep = parse_show_episode(args.ja_sub)
     show = getattr(args, "show", None) or auto_show
     episode_no = getattr(args, "episode", None) or auto_ep
-    ep_id = dbm.add_episode(conn, episode, len(persisted) - len(active),
-                            total_repl, tokens=ep_tokens,
-                            show=show, episode_no=episode_no)
+    ep_id = dbm.add_episode(
+        conn,
+        episode,
+        len(persisted) - len(active),
+        total_repl,
+        tokens=ep_tokens,
+        show=show,
+        episode_no=episode_no,
+    )
     clock_after = clock_before + ep_tokens  # position after this file
     for w in persisted:
         lemma = w["lemma"]
         info = aligned.get(lemma, {})
-        wid = dbm.upsert_word(conn, lemma, w["reading"], w["romaji"],
-                              info.get("gloss"), w["pos"], episode)
+        wid = dbm.upsert_word(
+            conn, lemma, w["reading"], w["romaji"], info.get("gloss"), w["pos"], episode
+        )
         dbm.record_sighting(conn, wid, ep_id, w["count"], replaced.get(lemma, 0))
         for inj in plan:  # matched-variant history
             if inj["lemma"] == lemma:
@@ -894,25 +956,24 @@ def cmd_process(args):
         g = aligned.get(lemma, {}).get("gloss") or db_words.get(lemma, {})
         if not isinstance(g, str):
             g = db_words[lemma]["gloss"] if lemma in db_words else ""
-        row = conn.execute("SELECT exposures FROM words WHERE lemma=?",
-                           (lemma,)).fetchone()
+        row = conn.execute("SELECT exposures FROM words WHERE lemma=?", (lemma,)).fetchone()
         exp = row["exposures"] if row else 0
         # Vocabulary is permanent - no nudges toward `bll known`.
-        print(f"  {lemma} ({w['romaji']}) \"{g}\": "
-              f"{replaced.get(lemma, 0)} injected, {exp} lifetime")
+        print(f'  {lemma} ({w["romaji"]}) "{g}": {replaced.get(lemma, 0)} injected, {exp} lifetime')
     return 0
 
 
 # ---------------------------------------------------------------- render
 
+
 def cmd_render(args):
     with open(args.plan, encoding="utf-8") as f:
         data = json.load(f)
     en_sub = args.en_sub or data["en_file"]
-    threshold = (args.kana_threshold if args.kana_threshold is not None
-                 else data.get("kana_threshold", 15))
-    decay = (args.decay_tokens if args.decay_tokens is not None
-             else data.get("decay_tokens"))
+    threshold = (
+        args.kana_threshold if args.kana_threshold is not None else data.get("kana_threshold", 15)
+    )
+    decay = args.decay_tokens if args.decay_tokens is not None else data.get("decay_tokens")
     romaji = args.romaji or data.get("romaji", False)
     # Notes precedence:
     #   --rebake-db : re-derive from the live DB (fixes plans baked before
@@ -923,12 +984,15 @@ def cmd_render(args):
     if args.rebake_db:
         lemmas = {inj["lemma"] for inj in data["injections"]}
         conn = dbm.connect(args.rebake_db)
-        notes = resolve_notes(conn, lemmas, load_notes(args.notes),
-                              use_romaji=romaji)
+        notes = resolve_notes(conn, lemmas, load_notes(args.notes), use_romaji=romaji)
         # Heteronym-correct per-injection reading + note.
-        n_het = apply_sense_first(data["injections"], jmdict.load_merged(),
-                                  conn, load_notes(args.notes),
-                                  use_romaji=romaji)
+        n_het = apply_sense_first(
+            data["injections"],
+            jmdict.load_merged(),
+            conn,
+            load_notes(args.notes),
+            use_romaji=romaji,
+        )
         if n_het:
             print(f"Sense-first reading/note fixed on {n_het} heteronym injection(s)")
         if args.update_plan:
@@ -938,9 +1002,16 @@ def cmd_render(args):
             print(f"Re-baked {len(notes)} notes into {args.plan}")
     else:
         notes = load_notes(args.notes) or data.get("notes")
-    paths = render_plan(en_sub, data["injections"], args.output, threshold,
-                        decay, romaji=romaji, notes=notes,
-                        note_threshold=args.note_threshold)
+    paths = render_plan(
+        en_sub,
+        data["injections"],
+        args.output,
+        threshold,
+        decay,
+        romaji=romaji,
+        notes=notes,
+        note_threshold=args.note_threshold,
+    )
     print(f"Rendered {len(data['injections'])} injections from {args.plan}:")
     for layer, path in paths.items():
         print(f"  {layer:<8} {path}")
@@ -948,6 +1019,7 @@ def cmd_render(args):
 
 
 # ---------------------------------------------------------------- words/stats
+
 
 def cmd_words(args):
     conn = dbm.connect(args.db)
@@ -961,11 +1033,12 @@ def cmd_words(args):
     if not rows:
         print("No words yet.")
         return 0
-    print(f"{'word':<10} {'reading':<12} {'romaji':<14} {'status':<9} "
-          f"{'exp':>4}  gloss")
+    print(f"{'word':<10} {'reading':<12} {'romaji':<14} {'status':<9} {'exp':>4}  gloss")
     for r in rows:
-        print(f"{r['lemma']:<10} {r['reading'] or '':<12} {r['romaji'] or '':<14} "
-              f"{r['status']:<9} {r['exposures']:>4}  {r['gloss'] or ''}")
+        print(
+            f"{r['lemma']:<10} {r['reading'] or '':<12} {r['romaji'] or '':<14} "
+            f"{r['status']:<9} {r['exposures']:>4}  {r['gloss'] or ''}"
+        )
     return 0
 
 
@@ -982,17 +1055,19 @@ def cmd_mark(args, status):
 
 def cmd_note(args):
     """Show / set / clear the translator-note override for a word.
-      bll note 計画                      # show current (override or auto-default)
-      bll note 計画 "計画 = plan"        # set an override
-      bll note 計画 --clear              # revert to the auto "romaji = gloss" """
+    bll note 計画                      # show current (override or auto-default)
+    bll note 計画 "計画 = plan"        # set an override
+    bll note 計画 --clear              # revert to the auto "romaji = gloss" """
     conn = dbm.connect(args.db)
-    row = conn.execute("SELECT reading, romaji, gloss, note FROM words WHERE lemma=?",
-                       (args.lemma,)).fetchone()
+    row = conn.execute(
+        "SELECT reading, romaji, gloss, note FROM words WHERE lemma=?", (args.lemma,)
+    ).fetchone()
     if not row:
         print(f"{args.lemma}: not in database", file=sys.stderr)
         return 1
-    auto = default_note(args.lemma, row["reading"], row["romaji"], row["gloss"],
-                        use_romaji=not args.kana)
+    auto = default_note(
+        args.lemma, row["reading"], row["romaji"], row["gloss"], use_romaji=not args.kana
+    )
     if args.clear:
         dbm.set_note(conn, args.lemma, None)
         conn.commit()
@@ -1013,16 +1088,19 @@ def cmd_serve(args):
     if not args.no_bootstrap:
         try:
             from . import bootstrap
+
             bootstrap.ensure_ready(args.ollama_url, wait=args.wait)
         except RuntimeError as e:
-            print(f"warning: aligner not ready ({e})\n"
-                  "  the UI will still start; run Bootstrap from it or set up "
-                  "ollama, then process.", file=sys.stderr)
+            print(
+                f"warning: aligner not ready ({e})\n"
+                "  the UI will still start; run Bootstrap from it or set up "
+                "ollama, then process.",
+                file=sys.stderr,
+            )
     try:
         import uvicorn
     except ImportError:
-        print("the web UI needs the 'web' extra: pip install 'bll[web]'",
-              file=sys.stderr)
+        print("the web UI needs the 'web' extra: pip install 'bll[web]'", file=sys.stderr)
         return 1
     if args.db:
         os.environ["BLL_DB"] = args.db
@@ -1035,6 +1113,7 @@ def cmd_bootstrap(args):
     """Make the aligner backend ready: find ollama, pull the base model if
     needed, create the tuned profile if needed. Safe to re-run."""
     from . import bootstrap
+
     try:
         url = bootstrap.ensure_ready(args.ollama_url, wait=args.wait)
     except RuntimeError as e:
@@ -1046,25 +1125,29 @@ def cmd_bootstrap(args):
 
 def cmd_stats(args):
     conn = dbm.connect(args.db)
-    counts = dict(conn.execute(
-        "SELECT status, COUNT(*) FROM words GROUP BY status"))
-    eps = list(conn.execute(
-        "SELECT * FROM episodes ORDER BY id DESC LIMIT 10"))
-    total_repl = conn.execute(
-        "SELECT COALESCE(SUM(replacements),0) FROM episodes").fetchone()[0]
-    print(f"Words:    {counts.get('learning', 0)} learning, "
-          f"{counts.get('known', 0)} known, {counts.get('ignored', 0)} ignored")
-    print(f"Episodes: {len(list(conn.execute('SELECT id FROM episodes')))} processed, "
-          f"{total_repl} total injections")
+    counts = dict(conn.execute("SELECT status, COUNT(*) FROM words GROUP BY status"))
+    eps = list(conn.execute("SELECT * FROM episodes ORDER BY id DESC LIMIT 10"))
+    total_repl = conn.execute("SELECT COALESCE(SUM(replacements),0) FROM episodes").fetchone()[0]
+    print(
+        f"Words:    {counts.get('learning', 0)} learning, "
+        f"{counts.get('known', 0)} known, {counts.get('ignored', 0)} ignored"
+    )
+    print(
+        f"Episodes: {len(list(conn.execute('SELECT id FROM episodes')))} processed, "
+        f"{total_repl} total injections"
+    )
     if eps:
         print("Recent episodes:")
         for e in eps:
-            print(f"  {e['processed_at']}  {e['name']}  "
-                  f"(+{e['new_words']} words, {e['replacements']} injections)")
+            print(
+                f"  {e['processed_at']}  {e['name']}  "
+                f"(+{e['new_words']} words, {e['replacements']} injections)"
+            )
     return 0
 
 
 # ---------------------------------------------------------------- main
+
 
 def main(argv=None):
     p = argparse.ArgumentParser(
@@ -1078,142 +1161,226 @@ def main(argv=None):
     pp.add_argument("ja_sub", help="Japanese (L2) subtitle file")
     pp.add_argument("en_sub", help="English (L1) subtitle file")
     pp.add_argument("-o", "--output", help="output path (default: <en_sub>.bll.<ext>)")
-    pp.add_argument("-n", "--new-words", type=int, default=None,
-                    help="per-episode cap on new words. Default = --max-active "
-                         "(the load gate is the sole limiter, which lets "
-                         "value-density scheduling refill freed slots). Set to "
-                         "1 for a gentler one-new-word-per-episode ramp.")
-    pp.add_argument("--max-active", type=int, default=2,
-                    help="pace gate and primary limiter: max unconsolidated "
-                         "words on screen at once. Default 2; 3-4 introduces "
-                         "words faster.")
-    pp.add_argument("--learning-threshold", type=int, default=10,
-                    help="exposures at which a word stops counting as "
-                         "unconsolidated 'load' for the pace gate (default 10)")
-    pp.add_argument("--min-count", type=int, default=2,
-                    help="min occurrences in episode for new words (default 2)")
-    pp.add_argument("--min-zipf", type=float, default=3.0,
-                    help="min general-frequency zipf score (default 3.0)")
-    pp.add_argument("--max-per-cue", type=int, default=0,
-                    help="max replacements per subtitle cue; 0 = unlimited "
-                         "(incl. identical in-line repeats). Default 0")
-    pp.add_argument("--season-dir", default=None,
-                    help="dir of sibling JA subs (*.ja.*); rest-of-season "
-                         "counts break selection ties")
-    pp.add_argument("--pick", action="store_true",
-                    help="interactively choose new words from the candidate "
-                         "list before alignment")
-    pp.add_argument("--kana-threshold", type=int, default=15,
-                    help="adaptive layer drops kana after this many lifetime "
-                         "exposures (default 15)")
-    pp.add_argument("--decay-tokens", type=int, default=6000,
-                    help="forgetting curve: a faded word's kana returns "
-                         "if not seen in this many JA tokens of content "
-                         "(default 6000 ~= 2 episodes; handles content switches)")
-    pp.add_argument("--show", default=None,
-                    help="show/series name for this episode (default: auto from path)")
-    pp.add_argument("--episode", default=None,
-                    help="episode number (default: auto-parsed from filename)")
-    pp.add_argument("--romaji", action="store_true",
-                    help="annotate with romaji instead of kana (for learners "
-                         "who don't read kana yet)")
-    pp.add_argument("--notes", default=None,
-                    help="JSON file of lemma->explanation; adds a top-of-screen "
-                         "translator note on a noted word's first appearances")
-    pp.add_argument("--note-threshold", type=int, default=5,
-                    help="show a word's translator note while its lifetime "
-                         "exposures are below this (same counter as the kana "
-                         "fade, earlier cutoff; default 5). .answers shows all.")
-    pp.add_argument("--include-pos", default="noun,adj",
-                    help="POS classes for new words: noun,adj,verb,adv "
-                         "(default noun,adj - JA verbs sit awkwardly in EN frames)")
-    pp.add_argument("--no-dict", action="store_true",
-                    help="disable the JMdict canonical-pair filter")
-    pp.add_argument("--backend", choices=["claude", "ollama"], default="ollama",
-                    help="alignment backend (default ollama: local, no cost). "
-                         "'claude' shells out to the Claude CLI and spends "
-                         "Claude tokens.")
-    pp.add_argument("--model", default=None,
-                    help="model name (claude model id, or ollama tag like gemma3:12b)")
-    pp.add_argument("--ollama-url", default="http://localhost:11434",
-                    help="ollama server URL")
-    pp.add_argument("--think", action="store_true",
-                    help="enable model thinking (ollama backend; ~15x slower "
-                         "for no quality gain in testing - off by default)")
-    pp.add_argument("--gloss-json", default=None,
-                    help="use this JSON file instead of calling the aligner")
-    pp.add_argument("--dry-run", action="store_true",
-                    help="only show selected words")
+    pp.add_argument(
+        "-n",
+        "--new-words",
+        type=int,
+        default=None,
+        help="per-episode cap on new words. Default = --max-active "
+        "(the load gate is the sole limiter, which lets "
+        "value-density scheduling refill freed slots). Set to "
+        "1 for a gentler one-new-word-per-episode ramp.",
+    )
+    pp.add_argument(
+        "--max-active",
+        type=int,
+        default=2,
+        help="pace gate and primary limiter: max unconsolidated "
+        "words on screen at once. Default 2; 3-4 introduces "
+        "words faster.",
+    )
+    pp.add_argument(
+        "--learning-threshold",
+        type=int,
+        default=10,
+        help="exposures at which a word stops counting as "
+        "unconsolidated 'load' for the pace gate (default 10)",
+    )
+    pp.add_argument(
+        "--min-count",
+        type=int,
+        default=2,
+        help="min occurrences in episode for new words (default 2)",
+    )
+    pp.add_argument(
+        "--min-zipf", type=float, default=3.0, help="min general-frequency zipf score (default 3.0)"
+    )
+    pp.add_argument(
+        "--max-per-cue",
+        type=int,
+        default=0,
+        help="max replacements per subtitle cue; 0 = unlimited "
+        "(incl. identical in-line repeats). Default 0",
+    )
+    pp.add_argument(
+        "--season-dir",
+        default=None,
+        help="dir of sibling JA subs (*.ja.*); rest-of-season counts break selection ties",
+    )
+    pp.add_argument(
+        "--pick",
+        action="store_true",
+        help="interactively choose new words from the candidate list before alignment",
+    )
+    pp.add_argument(
+        "--kana-threshold",
+        type=int,
+        default=15,
+        help="adaptive layer drops kana after this many lifetime exposures (default 15)",
+    )
+    pp.add_argument(
+        "--decay-tokens",
+        type=int,
+        default=6000,
+        help="forgetting curve: a faded word's kana returns "
+        "if not seen in this many JA tokens of content "
+        "(default 6000 ~= 2 episodes; handles content switches)",
+    )
+    pp.add_argument(
+        "--show", default=None, help="show/series name for this episode (default: auto from path)"
+    )
+    pp.add_argument(
+        "--episode", default=None, help="episode number (default: auto-parsed from filename)"
+    )
+    pp.add_argument(
+        "--romaji",
+        action="store_true",
+        help="annotate with romaji instead of kana (for learners who don't read kana yet)",
+    )
+    pp.add_argument(
+        "--notes",
+        default=None,
+        help="JSON file of lemma->explanation; adds a top-of-screen "
+        "translator note on a noted word's first appearances",
+    )
+    pp.add_argument(
+        "--note-threshold",
+        type=int,
+        default=5,
+        help="show a word's translator note while its lifetime "
+        "exposures are below this (same counter as the kana "
+        "fade, earlier cutoff; default 5). .answers shows all.",
+    )
+    pp.add_argument(
+        "--include-pos",
+        default="noun,adj",
+        help="POS classes for new words: noun,adj,verb,adv "
+        "(default noun,adj - JA verbs sit awkwardly in EN frames)",
+    )
+    pp.add_argument(
+        "--no-dict", action="store_true", help="disable the JMdict canonical-pair filter"
+    )
+    pp.add_argument(
+        "--backend",
+        choices=["claude", "ollama"],
+        default="ollama",
+        help="alignment backend (default ollama: local, no cost). "
+        "'claude' shells out to the Claude CLI and spends "
+        "Claude tokens.",
+    )
+    pp.add_argument(
+        "--model", default=None, help="model name (claude model id, or ollama tag like gemma3:12b)"
+    )
+    pp.add_argument("--ollama-url", default="http://localhost:11434", help="ollama server URL")
+    pp.add_argument(
+        "--think",
+        action="store_true",
+        help="enable model thinking (ollama backend; ~15x slower "
+        "for no quality gain in testing - off by default)",
+    )
+    pp.add_argument(
+        "--gloss-json", default=None, help="use this JSON file instead of calling the aligner"
+    )
+    pp.add_argument("--dry-run", action="store_true", help="only show selected words")
     pp.set_defaults(func=cmd_process)
 
-    pr = sub.add_parser("render", help="re-render subtitle layers from a "
-                                       "plan sidecar (no model, no DB)")
+    pr = sub.add_parser(
+        "render", help="re-render subtitle layers from a plan sidecar (no model, no DB)"
+    )
     pr.add_argument("plan", help="path to a .plan.json sidecar")
-    pr.add_argument("en_sub", nargs="?",
-                    help="original EN subtitle (default: en_file from plan)")
-    pr.add_argument("-o", "--output", required=True,
-                    help="adaptive-layer output path (.plain/.kana derived)")
-    pr.add_argument("--kana-threshold", type=int, default=None,
-                    help="override the plan's kana threshold")
-    pr.add_argument("--decay-tokens", type=int, default=None,
-                    help="override the plan's forgetting-curve threshold")
-    pr.add_argument("--romaji", action="store_true",
-                    help="annotate with romaji instead of kana")
-    pr.add_argument("--notes", default=None,
-                    help="JSON file of lemma->explanation for translator-note "
-                         "overlays")
-    pr.add_argument("--note-threshold", type=int, default=5,
-                    help="show a note while lifetime exposures are below this "
-                         "(default 5)")
-    pr.add_argument("--rebake-db", default=None,
-                    help="re-derive notes from this campaign DB (auto "
-                         "'kanji (reading) = gloss' + operator overrides) "
-                         "instead of using the notes baked into the plan. Fixes "
-                         "plans rendered before auto-notes existed.")
-    pr.add_argument("--update-plan", action="store_true",
-                    help="with --rebake-db, write the re-baked notes back into "
-                         "the plan sidecar so it stays current.")
+    pr.add_argument("en_sub", nargs="?", help="original EN subtitle (default: en_file from plan)")
+    pr.add_argument(
+        "-o", "--output", required=True, help="adaptive-layer output path (.plain/.kana derived)"
+    )
+    pr.add_argument(
+        "--kana-threshold", type=int, default=None, help="override the plan's kana threshold"
+    )
+    pr.add_argument(
+        "--decay-tokens",
+        type=int,
+        default=None,
+        help="override the plan's forgetting-curve threshold",
+    )
+    pr.add_argument("--romaji", action="store_true", help="annotate with romaji instead of kana")
+    pr.add_argument(
+        "--notes", default=None, help="JSON file of lemma->explanation for translator-note overlays"
+    )
+    pr.add_argument(
+        "--note-threshold",
+        type=int,
+        default=5,
+        help="show a note while lifetime exposures are below this (default 5)",
+    )
+    pr.add_argument(
+        "--rebake-db",
+        default=None,
+        help="re-derive notes from this campaign DB (auto "
+        "'kanji (reading) = gloss' + operator overrides) "
+        "instead of using the notes baked into the plan. Fixes "
+        "plans rendered before auto-notes existed.",
+    )
+    pr.add_argument(
+        "--update-plan",
+        action="store_true",
+        help="with --rebake-db, write the re-baked notes back into "
+        "the plan sidecar so it stays current.",
+    )
     pr.set_defaults(func=cmd_render)
 
     pw = sub.add_parser("words", help="list the word database")
-    pw.add_argument("--status", choices=["all", "learning", "known", "ignored"],
-                    default="all")
+    pw.add_argument("--status", choices=["all", "learning", "known", "ignored"], default="all")
     pw.set_defaults(func=cmd_words)
 
-    for name, status in (("known", "known"), ("ignore", "ignored"),
-                         ("learning", "learning")):
+    for name, status in (("known", "known"), ("ignore", "ignored"), ("learning", "learning")):
         pm = sub.add_parser(name, help=f"mark words as {status}")
         pm.add_argument("lemmas", nargs="+")
         pm.set_defaults(func=lambda a, s=status: cmd_mark(a, s))
 
-    pn = sub.add_parser("note", help="show/set/clear a word's translator note "
-                                     "(auto-generated 'romaji = gloss' by default)")
+    pn = sub.add_parser(
+        "note",
+        help="show/set/clear a word's translator note (auto-generated 'romaji = gloss' by default)",
+    )
     pn.add_argument("lemma")
-    pn.add_argument("text", nargs="?", default=None,
-                    help="override text; omit to show the current note")
-    pn.add_argument("--clear", action="store_true",
-                    help="remove the override, revert to the auto default")
-    pn.add_argument("--kana", action="store_true",
-                    help="preview the auto default in kana instead of romaji")
+    pn.add_argument(
+        "text", nargs="?", default=None, help="override text; omit to show the current note"
+    )
+    pn.add_argument(
+        "--clear", action="store_true", help="remove the override, revert to the auto default"
+    )
+    pn.add_argument(
+        "--kana", action="store_true", help="preview the auto default in kana instead of romaji"
+    )
     pn.set_defaults(func=cmd_note)
 
     psv = sub.add_parser("serve", help="launch the operator-console web UI")
-    psv.add_argument("--host", default="127.0.0.1",
-                     help="bind address (0.0.0.0 to expose on the network)")
+    psv.add_argument(
+        "--host", default="127.0.0.1", help="bind address (0.0.0.0 to expose on the network)"
+    )
     psv.add_argument("--port", type=int, default=8000)
     psv.add_argument("--ollama-url", default=None, help="ollama URL override")
-    psv.add_argument("--wait", type=int, default=0,
-                     help="seconds to wait for ollama on startup (container start)")
-    psv.add_argument("--no-bootstrap", action="store_true",
-                     help="skip the model provisioning check on startup")
+    psv.add_argument(
+        "--wait",
+        type=int,
+        default=0,
+        help="seconds to wait for ollama on startup (container start)",
+    )
+    psv.add_argument(
+        "--no-bootstrap", action="store_true", help="skip the model provisioning check on startup"
+    )
     psv.set_defaults(func=cmd_serve)
 
-    pb = sub.add_parser("bootstrap", help="provision the aligner model "
-                                          "(find ollama, pull base, create profile)")
-    pb.add_argument("--ollama-url", default=None,
-                    help="ollama URL (default: probe localhost / host / sibling)")
-    pb.add_argument("--wait", type=int, default=0,
-                    help="seconds to wait for ollama to come up (container start)")
+    pb = sub.add_parser(
+        "bootstrap", help="provision the aligner model (find ollama, pull base, create profile)"
+    )
+    pb.add_argument(
+        "--ollama-url", default=None, help="ollama URL (default: probe localhost / host / sibling)"
+    )
+    pb.add_argument(
+        "--wait",
+        type=int,
+        default=0,
+        help="seconds to wait for ollama to come up (container start)",
+    )
     pb.set_defaults(func=cmd_bootstrap)
 
     ps = sub.add_parser("stats", help="overview of progress")
