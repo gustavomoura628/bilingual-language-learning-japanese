@@ -17,6 +17,11 @@ web = [
     "uvicorn[standard]>=0.27",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
 [project.scripts]
 bll = "bll.cli:main"
 
