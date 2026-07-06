@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime
 
 DEFAULT_DB = os.environ.get(
@@ -19,7 +20,8 @@ DEFAULT_DB = os.environ.get(
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS words (
     id INTEGER PRIMARY KEY,
-    lemma TEXT UNIQUE NOT NULL,
+    lemma TEXT NOT NULL,
+    lang TEXT NOT NULL DEFAULT 'ja',  -- language tag for this lemma (issue #16: zh-TW etc.)
     reading TEXT,
     romaji TEXT,
     gloss TEXT,
@@ -35,7 +37,8 @@ CREATE TABLE IF NOT EXISTS words (
     first_seen TEXT,                 -- episode where the word was introduced
     learned_at TEXT,                 -- timestamp it consolidated (exposures>=threshold)
     learned_at_episode TEXT,         -- episode where it consolidated ("learned")
-    added_at TEXT NOT NULL
+    added_at TEXT NOT NULL,
+    UNIQUE(lemma, lang)
 );
 CREATE TABLE IF NOT EXISTS episodes (
     id INTEGER PRIMARY KEY,
@@ -70,7 +73,7 @@ CREATE TABLE IF NOT EXISTS align_cache (
 """
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
+def _migration_v1_baseline(conn: sqlite3.Connection) -> None:
     """Add columns introduced after a DB was first created (SQLite CREATE
     IF NOT EXISTS won't alter existing tables)."""
     have = {r[1] for r in conn.execute("PRAGMA table_info(words)")}
@@ -99,7 +102,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 def _backfill_episode_meta(conn: sqlite3.Connection) -> None:
     """Parse an episode number out of each episode's filename that doesn't have
-    one yet (e.g. e04.ja.srt -> "04"). Show is left for the operator to set."""
+    one yet (e.g. e04.ja.srt -> "4" -- the regex's greedy 0* consumes any
+    leading zeros before the capture group starts). Show is left for the
+    operator to set."""
     for ep in conn.execute("SELECT id, name FROM episodes WHERE episode_no IS NULL"):
         m = re.search(r"(?:e|ep|episode|\bx)\s*0*(\d+)", ep["name"], re.I) or re.search(
             r"\b0*(\d{1,3})\b", ep["name"]
@@ -130,13 +135,111 @@ def _backfill_learned(conn: sqlite3.Connection, threshold: int = 10) -> None:
                 break
 
 
+def _migration_v2_lang_keying(conn: sqlite3.Connection) -> None:
+    """v1 -> v2: words gains lang TEXT NOT NULL DEFAULT 'ja'; UNIQUE(lemma)
+    widens to UNIQUE(lemma, lang). Idempotent -- skips the rebuild if `lang`
+    is already a column (true for any DB created fresh from SCHEMA)."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(words)")}
+    if "lang" in have:
+        return
+    _rebuild_words_table_add_lang(conn)
+
+
+def _rebuild_words_table_add_lang(conn: sqlite3.Connection) -> None:
+    """SQLite can't ALTER a UNIQUE constraint in place: create a new table
+    with the target shape, copy every row across with lang='ja', drop the
+    old table, rename the new one into place. Explicit column lists in both
+    the CREATE and the INSERT...SELECT -- never SELECT * -- so column-order
+    drift between the two tables can't silently corrupt data. `id` values
+    are copied unchanged (SQLite's plain INTEGER PRIMARY KEY is just the
+    rowid; explicit id in the column list preserves it exactly), so
+    sightings.word_id and variants.word_id keep resolving to the same rows.
+    PRAGMA foreign_keys is off by default in this codebase and untouched --
+    no special handling needed (see Decision 1)."""
+    conn.execute(
+        """
+        CREATE TABLE words_new (
+            id INTEGER PRIMARY KEY,
+            lemma TEXT NOT NULL,
+            lang TEXT NOT NULL DEFAULT 'ja',
+            reading TEXT,
+            romaji TEXT,
+            gloss TEXT,
+            note TEXT,
+            pos TEXT,
+            status TEXT NOT NULL DEFAULT 'learning',
+            exposures INTEGER NOT NULL DEFAULT 0,
+            last_seen_pos INTEGER NOT NULL DEFAULT 0,
+            first_seen TEXT,
+            learned_at TEXT,
+            learned_at_episode TEXT,
+            added_at TEXT NOT NULL,
+            UNIQUE(lemma, lang)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO words_new (
+            id, lemma, lang, reading, romaji, gloss, note, pos, status,
+            exposures, last_seen_pos, first_seen, learned_at,
+            learned_at_episode, added_at
+        )
+        SELECT
+            id, lemma, 'ja', reading, romaji, gloss, note, pos, status,
+            exposures, last_seen_pos, first_seen, learned_at,
+            learned_at_episode, added_at
+        FROM words
+        """
+    )
+    conn.execute("DROP TABLE words")
+    conn.execute("ALTER TABLE words_new RENAME TO words")
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
+    _migration_v1_baseline,
+    _migration_v2_lang_keying,
+]
+SCHEMA_VERSION: int = len(MIGRATIONS)
+
+
+def _apply_migrations(conn: sqlite3.Connection, path: str, pre_existing: bool) -> None:
+    """Walk PRAGMA user_version from wherever this DB currently sits up to
+    SCHEMA_VERSION, running each pending step in MIGRATIONS as one atomic
+    transaction (all steps or none) so a mid-walk failure never leaves the
+    DB stamped at a version this code never validated landing on cleanly.
+
+    Backs up the file first, exactly once, iff this call is the first to
+    advance an ALREADY-EXISTING on-disk DB. `pre_existing` (computed by the
+    caller before sqlite3.connect() creates the file) is what gates this --
+    not `current == 0` -- because a brand-new DB also reads user_version 0
+    and has nothing to lose.
+    """
+    current = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current >= SCHEMA_VERSION:
+        return
+    if pre_existing:
+        backup(path)
+    conn.execute("BEGIN")
+    try:
+        for step in range(current, SCHEMA_VERSION):
+            MIGRATIONS[step](conn)
+            conn.execute(f"PRAGMA user_version = {step + 1}")
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
+
+
 def connect(path: str | None = None) -> sqlite3.Connection:
     path = path or DEFAULT_DB
+    pre_existing = path != ":memory:" and os.path.exists(path)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
-    _migrate(conn)
+    _apply_migrations(conn, path, pre_existing)
     conn.commit()  # persist schema migrations + one-time backfills
     return conn
 

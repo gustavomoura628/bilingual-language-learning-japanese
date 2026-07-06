@@ -111,10 +111,10 @@ def test_touch_last_seen_updates_position(conn):
 
 # --- AT6: connect()-time migration + backfill from a hand-built legacy schema ---
 #
-# `words` loses exactly the four columns `_migrate` adds (last_seen_pos, note,
+# `words` loses exactly the four columns `_migration_v1_baseline` adds (last_seen_pos, note,
 # learned_at, learned_at_episode); `episodes` loses exactly the three it adds
 # (tokens, show, episode_no). `sightings` is reproduced at its current,
-# unchanged definition (nothing in `_migrate` alters it) since its rows are
+# unchanged definition (nothing in `_migration_v1_baseline` alters it) since its rows are
 # what `_backfill_learned` replays -- if it doesn't already exist when
 # db.connect() calls executescript(SCHEMA), CREATE TABLE IF NOT EXISTS would
 # create it empty and the seed rows below would never make it in.
@@ -218,7 +218,7 @@ def test_connect_migrates_and_backfills_legacy_schema(tmp_path):
     raw.commit()
     raw.close()
 
-    conn = db.connect(path)  # runs _migrate() + both backfills
+    conn = db.connect(path)  # runs _migration_v1_baseline() + both backfills
 
     words_cols = {r["name"] for r in conn.execute("PRAGMA table_info(words)")}
     assert {"last_seen_pos", "note", "learned_at", "learned_at_episode"} <= words_cols
@@ -246,3 +246,103 @@ def test_connect_migrates_and_backfills_legacy_schema(tmp_path):
 
     assert words["迷う"]["learned_at"] is None  # never crossed 10 -- stays unstamped
     assert words["迷う"]["learned_at_episode"] is None
+
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+    words_after = db.all_words(conn)
+    assert all(r["lang"] == "ja" for r in words_after.values())
+
+
+# --- new no-data-loss test for the v1 -> v2 (lang) migration ---
+#
+# Shape = today's current SCHEMA (pre-#17): everything _migration_v1_baseline
+# already produces, but words still has UNIQUE(lemma) and no lang column.
+# Populates words + episodes + sightings + variants so the assertions can
+# prove id-preservation across the rebuild, not just column presence.
+PRE_LANG_SCHEMA = """
+CREATE TABLE words (
+    id INTEGER PRIMARY KEY,
+    lemma TEXT UNIQUE NOT NULL,
+    reading TEXT,
+    romaji TEXT,
+    gloss TEXT,
+    note TEXT,
+    pos TEXT,
+    status TEXT NOT NULL DEFAULT 'learning',
+    exposures INTEGER NOT NULL DEFAULT 0,
+    last_seen_pos INTEGER NOT NULL DEFAULT 0,
+    first_seen TEXT,
+    learned_at TEXT,
+    learned_at_episode TEXT,
+    added_at TEXT NOT NULL
+);
+CREATE TABLE episodes (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    processed_at TEXT NOT NULL,
+    new_words INTEGER NOT NULL DEFAULT 0,
+    replacements INTEGER NOT NULL DEFAULT 0,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    show TEXT,
+    episode_no TEXT
+);
+CREATE TABLE sightings (
+    word_id INTEGER NOT NULL REFERENCES words(id),
+    episode_id INTEGER NOT NULL REFERENCES episodes(id),
+    occurrences INTEGER NOT NULL DEFAULT 0,
+    replacements INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (word_id, episode_id)
+);
+CREATE TABLE variants (
+    word_id INTEGER NOT NULL REFERENCES words(id),
+    en_word TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (word_id, en_word)
+);
+"""
+
+
+def test_connect_migrates_words_lang_with_no_data_loss(tmp_path):
+    path = str(tmp_path / "prelang.db")
+
+    raw = sqlite3.connect(path)
+    raw.executescript(PRE_LANG_SCHEMA)
+    w1 = raw.execute(
+        "INSERT INTO words (lemma, reading, romaji, gloss, pos, exposures, added_at) "
+        "VALUES ('猫','ネコ','neko','cat','noun',5,'2026-01-01T00:00:00')"
+    ).lastrowid
+    w2 = raw.execute(
+        "INSERT INTO words (lemma, reading, romaji, gloss, pos, exposures, added_at) "
+        "VALUES ('覚える','おぼえる','oboeru','to memorize','verb',12,'2026-01-01T00:00:00')"
+    ).lastrowid
+    ep1 = raw.execute(
+        "INSERT INTO episodes (name, processed_at, new_words, replacements, tokens) "
+        "VALUES ('e01.ja.srt','2026-01-01T00:00:00',2,5,120)"
+    ).lastrowid
+    raw.execute(
+        "INSERT INTO sightings (word_id, episode_id, occurrences, replacements) VALUES (?,?,3,3)",
+        (w1, ep1),
+    )
+    raw.execute(
+        "INSERT INTO variants (word_id, en_word, count) VALUES (?, 'cat', 3)",
+        (w1,),
+    )
+    raw.commit()
+    raw.close()
+
+    conn = db.connect(path)  # runs the full v0(effectively v1)->v2 walk
+
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
+
+    words = db.all_words(conn)
+    assert set(words) == {"猫", "覚える"}  # every pre-existing row survives
+    assert all(r["lang"] == "ja" for r in words.values())
+    assert words["猫"]["id"] == w1  # id preserved across the rebuild
+    assert words["覚える"]["id"] == w2
+
+    # sightings/variants still resolve through the preserved id
+    sighting = conn.execute(
+        "SELECT occurrences FROM sightings WHERE word_id=? AND episode_id=?", (w1, ep1)
+    ).fetchone()
+    assert sighting["occurrences"] == 3
+    variants = db.word_variants(conn, w1)
+    assert variants == {"cat": 3}
