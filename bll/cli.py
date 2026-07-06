@@ -365,10 +365,11 @@ def cmd_process(args: argparse.Namespace) -> int:
     episode = os.path.basename(args.ja_sub)
 
     # JMdict canonical-pair dictionary (conjunction filter; --no-dict to
-    # skip). Merged view: common subset + full-dict compounds.
+    # skip). Merged view: common subset + full-dict compounds. --dict-json
+    # loads a committed offline fixture instead (deterministic testing).
     jm = None
     if not args.no_dict:
-        jm = jmdict.load_merged()  # auto-downloads on first run
+        jm = jmdict.load_merged(fixture_path=args.dict_json)  # auto-downloads unless --dict-json
 
     db_words = dbm.all_words(conn)
     known = {lemma for lemma, r in db_words.items() if r["status"] in ("known", "ignored")}
@@ -1264,6 +1265,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     pp.add_argument(
         "--no-dict", action="store_true", help="disable the JMdict canonical-pair filter"
+    )
+    pp.add_argument(
+        "--dict-json",
+        default=None,
+        help="load the JMdict lookup from this JSON file instead of "
+        "downloading (offline/deterministic testing; must match "
+        "load_merged()'s surface -> [{g: glosses, r: readings}] shape). "
+        "Ignored if --no-dict is set.",
     )
     pp.add_argument(
         "--backend",

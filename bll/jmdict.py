@@ -219,8 +219,19 @@ def load_compounds(auto_build=True):
     return _compounds
 
 
-def load_merged(auto_build=True):
-    """Common lookup overlaid on the compound lookup (common wins)."""
+def load_merged(auto_build=True, fixture_path=None):
+    """Common lookup overlaid on the compound lookup (common wins).
+
+    fixture_path: if given, load ONLY this JSON file instead of the
+    common+compounds network/build path - a committed, hand-authored fixture
+    for offline/deterministic testing (e.g.
+    tests/fixtures/dict_promise_secret.json). Bypasses load()/load_compounds()
+    (and therefore any network access) entirely; the file must already be in
+    the shape this function returns: {surface: [{"g": [...], "r": [...]}]}.
+    """
+    if fixture_path:
+        with open(fixture_path, encoding="utf-8") as f:
+            return json.load(f)
     common = load(auto_build) or {}
     comp = load_compounds(auto_build)
     if not comp:
