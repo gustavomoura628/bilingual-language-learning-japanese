@@ -1,10 +1,14 @@
 """bll command-line interface."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import re
 import sys
+import typing
+from typing import Any
 
 import pysubs2
 
@@ -346,7 +350,8 @@ def replace_in_event(event, en_word, replacement):
 # ---------------------------------------------------------------- process
 
 
-def cmd_process(args):
+@typing.no_type_check
+def cmd_process(args: argparse.Namespace) -> int:
     if args.backend == "ollama" and not args.model:
         # The aligner-tuned profile (ctx2048, temp0; see deploy/bll-align.Modelfile).
         # Default name is portable ("bll-align", auto-fits any GPU); override with
@@ -966,7 +971,7 @@ def cmd_process(args):
 # ---------------------------------------------------------------- render
 
 
-def cmd_render(args):
+def cmd_render(args: argparse.Namespace) -> int:
     with open(args.plan, encoding="utf-8") as f:
         data = json.load(f)
     en_sub = args.en_sub or data["en_file"]
@@ -1021,10 +1026,10 @@ def cmd_render(args):
 # ---------------------------------------------------------------- words/stats
 
 
-def cmd_words(args):
+def cmd_words(args: argparse.Namespace) -> int:
     conn = dbm.connect(args.db)
     q = "SELECT * FROM words"
-    params = ()
+    params: tuple[Any, ...] = ()
     if args.status != "all":
         q += " WHERE status=?"
         params = (args.status,)
@@ -1042,7 +1047,7 @@ def cmd_words(args):
     return 0
 
 
-def cmd_mark(args, status):
+def cmd_mark(args: argparse.Namespace, status: str) -> int:
     conn = dbm.connect(args.db)
     for lemma in args.lemmas:
         if dbm.set_status(conn, lemma, status):
@@ -1053,7 +1058,7 @@ def cmd_mark(args, status):
     return 0
 
 
-def cmd_note(args):
+def cmd_note(args: argparse.Namespace) -> int:
     """Show / set / clear the translator-note override for a word.
     bll note 計画                      # show current (override or auto-default)
     bll note 計画 "計画 = plan"        # set an override
@@ -1083,7 +1088,7 @@ def cmd_note(args):
     return 0
 
 
-def cmd_serve(args):
+def cmd_serve(args: argparse.Namespace) -> int:
     """Launch the operator-console web UI (exposes the whole workflow)."""
     if not args.no_bootstrap:
         try:
@@ -1109,7 +1114,7 @@ def cmd_serve(args):
     return 0
 
 
-def cmd_bootstrap(args):
+def cmd_bootstrap(args: argparse.Namespace) -> int:
     """Make the aligner backend ready: find ollama, pull the base model if
     needed, create the tuned profile if needed. Safe to re-run."""
     from . import bootstrap
@@ -1123,7 +1128,7 @@ def cmd_bootstrap(args):
     return 0
 
 
-def cmd_stats(args):
+def cmd_stats(args: argparse.Namespace) -> int:
     conn = dbm.connect(args.db)
     counts = dict(conn.execute("SELECT status, COUNT(*) FROM words GROUP BY status"))
     eps = list(conn.execute("SELECT * FROM episodes ORDER BY id DESC LIMIT 10"))
@@ -1149,7 +1154,7 @@ def cmd_stats(args):
 # ---------------------------------------------------------------- main
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="bll",
         description="Inject high-value Japanese words into English subtitles.",

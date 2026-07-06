@@ -6,10 +6,13 @@ occurrence, the exact substring of the English line that translates the word
 (or null if the English line doesn't contain a clean equivalent).
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
 import subprocess
+from typing import Any
 
 PROMPT_HEADER = """\
 You are a Japanese-English subtitle alignment assistant for a language-learning tool.
@@ -80,7 +83,7 @@ Words:
 """
 
 
-def build_prompt(entries, header=None):
+def build_prompt(entries: list[dict[str, Any]], header: str | None = None) -> str:
     """entries: list of {lemma, reading, occurrences:[{id, ja, en}]}"""
     parts = [header or PROMPT_HEADER]
     for e in entries:
@@ -91,7 +94,7 @@ def build_prompt(entries, header=None):
     return "\n".join(parts)
 
 
-def _extract_json(text):
+def _extract_json(text: str) -> Any:
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
     start = text.find("{")
     if start == -1:
@@ -101,7 +104,7 @@ def _extract_json(text):
     return obj
 
 
-def run_claude(prompt, model=None, timeout=600):
+def run_claude(prompt: str, model: str | None = None, timeout: int = 600) -> str:
     cmd = ["claude", "-p"]
     if model:
         cmd += ["--model", model]
@@ -118,8 +121,14 @@ def run_claude(prompt, model=None, timeout=600):
 
 
 def run_ollama(
-    prompt, model, url="http://localhost:11434", timeout=120, think=False, stats=None, temperature=0
-):
+    prompt: str,
+    model: str | None,
+    url: str = "http://localhost:11434",
+    timeout: int = 120,
+    think: bool = False,
+    stats: list[dict[str, Any]] | None = None,
+    temperature: float = 0,
+) -> str:
     """One chat call. Normal chunk latency is 8-15s; a long hang is a
     transport stall (a call can hang past the timeout under sustained load),
     so fail fast and retry the transport once. Persistent failure still raises
@@ -217,8 +226,12 @@ OLLAMA_CHUNK = 10  # small batches: local models lazy-null on long tails
 
 
 def gloss_and_align(
-    entries, model=None, backend="ollama", ollama_url="http://localhost:11434", think=False
-):
+    entries: list[dict[str, Any]],
+    model: str | None = None,
+    backend: str = "ollama",
+    ollama_url: str = "http://localhost:11434",
+    think: bool = False,
+) -> dict[str, dict[str, Any]]:
     """Returns dict lemma -> {gloss, reading, matches: {id: en_word|None}}.
 
     claude backend: one batch call for the whole episode.
@@ -235,8 +248,8 @@ def gloss_and_align(
     if backend != "ollama":
         raise ValueError(f"unknown backend: {backend}")
 
-    stats = []
-    out = {}
+    stats: list[dict[str, Any]] = []
+    out: dict[str, dict[str, Any]] = {}
     for e in entries:
         occs = e["occurrences"]
         merged = None
@@ -321,7 +334,7 @@ def gloss_and_align(
     return out
 
 
-def parse_result(data):
+def parse_result(data: Any) -> dict[str, dict[str, Any]]:
     out = {}
     for w in data.get("words", []):
         if not isinstance(w, dict) or not w.get("lemma") or w.get("skip"):
