@@ -346,3 +346,51 @@ def test_connect_migrates_words_lang_with_no_data_loss(tmp_path):
     assert sighting["occurrences"] == 3
     variants = db.word_variants(conn, w1)
     assert variants == {"cat": 3}
+
+
+# --- issue #28 (epic #16, slice A): lang plumbing through words call-sites ---
+#
+# These three tests exercise the new `lang` parameter on upsert_word/all_words/
+# set_status/set_note directly (unit-level, not end-to-end). Every pre-existing
+# call above this point in the file keeps its original argument count and
+# keeps passing unmodified -- that unmodified suite is itself the primary
+# byte-invariance regression check for db.py (see DESIGN_ISSUE_28_LANG_PLUMBING.md).
+
+
+def test_upsert_word_same_lemma_different_lang_coexist(conn):
+    wid_ja = db.upsert_word(conn, "猫", "ネコ", "neko", "cat", "noun", "e01.ja.srt")
+    wid_zh = db.upsert_word(conn, "猫", None, None, "cat (zh)", "noun", "e01.zh.srt", lang="zh-TW")
+    assert wid_ja != wid_zh  # two distinct rows -- same lemma did not upsert-over across langs
+
+    default_scope = db.all_words(conn)  # no lang arg -> defaults to "ja"
+    ja_scope = db.all_words(conn, lang="ja")
+    zh_scope = db.all_words(conn, lang="zh-TW")
+
+    assert set(default_scope) == {"猫"} == set(ja_scope)  # default == explicit "ja" (invariance)
+    assert default_scope["猫"]["id"] == ja_scope["猫"]["id"] == wid_ja
+    assert set(zh_scope) == {"猫"}
+    assert zh_scope["猫"]["id"] == wid_zh
+    assert ja_scope["猫"]["gloss"] == "cat"
+    assert zh_scope["猫"]["gloss"] == "cat (zh)"  # neither scope leaks into the other
+
+
+def test_set_status_scoped_by_lang_leaves_other_lang_row_untouched(conn):
+    db.upsert_word(conn, "猫", "ネコ", "neko", "cat", "noun", "e01.ja.srt")
+    db.upsert_word(conn, "猫", None, None, "cat (zh)", "noun", "e01.zh.srt", lang="zh-TW")
+
+    rowcount = db.set_status(conn, "猫", "known", lang="ja")
+
+    assert rowcount == 1
+    assert db.all_words(conn, lang="ja")["猫"]["status"] == "known"
+    assert db.all_words(conn, lang="zh-TW")["猫"]["status"] == "learning"  # untouched
+
+
+def test_set_note_scoped_by_lang_leaves_other_lang_row_untouched(conn):
+    db.upsert_word(conn, "猫", "ネコ", "neko", "cat", "noun", "e01.ja.srt")
+    db.upsert_word(conn, "猫", None, None, "cat (zh)", "noun", "e01.zh.srt", lang="zh-TW")
+
+    rowcount = db.set_note(conn, "猫", "override note", lang="ja")
+
+    assert rowcount == 1
+    assert db.all_words(conn, lang="ja")["猫"]["note"] == "override note"
+    assert db.all_words(conn, lang="zh-TW")["猫"]["note"] is None  # untouched

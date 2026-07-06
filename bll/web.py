@@ -217,6 +217,7 @@ def stats(learning_threshold: int = DEFAULTS["learning_threshold"], at: int = No
 @app.get("/api/words")
 def words(
     status: str = "all",
+    lang: str = "ja",
     kana_threshold: int = DEFAULTS["kana_threshold"],
     note_threshold: int = DEFAULTS["note_threshold"],
     learning_threshold: int = DEFAULTS["learning_threshold"],
@@ -224,11 +225,11 @@ def words(
 ):
     c = read_conn(at)
     clk = dbm.clock(c)  # current forgetting-clock position (total JA tokens watched)
-    q = "SELECT * FROM words"
-    params = ()
+    q = "SELECT * FROM words WHERE lang=?"
+    params: tuple = (lang,)
     if status != "all":
-        q += " WHERE status=?"
-        params = (status,)
+        q += " AND status=?"
+        params = (lang, status)
     q += " ORDER BY status, exposures DESC, lemma"
     out = []
     for r in c.execute(q, params):
@@ -271,12 +272,13 @@ def words(
 @app.post("/api/word/{lemma}")
 def update_word(lemma: str, body: dict):
     c = conn()
-    if not c.execute("SELECT 1 FROM words WHERE lemma=?", (lemma,)).fetchone():
+    lang = body.get("lang", "ja")
+    if not c.execute("SELECT 1 FROM words WHERE lemma=? AND lang=?", (lemma, lang)).fetchone():
         raise HTTPException(404, f"{lemma} not in database")
     if "status" in body:
-        dbm.set_status(c, lemma, body["status"])
+        dbm.set_status(c, lemma, body["status"], lang=lang)
     if "note" in body:  # "" or null clears the override
-        dbm.set_note(c, lemma, body["note"] or None)
+        dbm.set_note(c, lemma, body["note"] or None, lang=lang)
     c.commit()
     return {"ok": True}
 
@@ -330,11 +332,11 @@ def update_episode(ep_id: int, body: dict):
 
 
 @app.get("/api/word/{lemma}/history")
-def word_history(lemma: str):
+def word_history(lemma: str, lang: str = "ja"):
     """Full lifecycle of one word: where introduced, when learned, and its
     per-episode appearance/injection history + the English words it replaced."""
     c = conn()
-    w = c.execute("SELECT * FROM words WHERE lemma=?", (lemma,)).fetchone()
+    w = c.execute("SELECT * FROM words WHERE lemma=? AND lang=?", (lemma, lang)).fetchone()
     if not w:
         raise HTTPException(404, f"{lemma} not in database")
     hist = [

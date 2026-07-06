@@ -352,6 +352,14 @@ def replace_in_event(event, en_word, replacement):
 
 @typing.no_type_check
 def cmd_process(args: argparse.Namespace) -> int:
+    if args.lang != "ja":
+        print(
+            f"--lang {args.lang!r} is not supported yet -- zh-TW ingestion "
+            "lands in a later slice of issue #16 (this change only plumbs "
+            "the seam). Use --lang ja, or omit --lang, for now.",
+            file=sys.stderr,
+        )
+        return 1
     if args.backend == "ollama" and not args.model:
         # The aligner-tuned profile (ctx2048, temp0; see deploy/bll-align.Modelfile).
         # Default name is portable ("bll-align", auto-fits any GPU); override with
@@ -371,7 +379,7 @@ def cmd_process(args: argparse.Namespace) -> int:
     if not args.no_dict:
         jm = jmdict.load_merged(fixture_path=args.dict_json)  # auto-downloads unless --dict-json
 
-    db_words = dbm.all_words(conn)
+    db_words = dbm.all_words(conn, lang=args.lang)
     known = {lemma for lemma, r in db_words.items() if r["status"] in ("known", "ignored")}
     learning = {lemma for lemma, r in db_words.items() if r["status"] == "learning"}
 
@@ -940,7 +948,14 @@ def cmd_process(args: argparse.Namespace) -> int:
         lemma = w["lemma"]
         info = aligned.get(lemma, {})
         wid = dbm.upsert_word(
-            conn, lemma, w["reading"], w["romaji"], info.get("gloss"), w["pos"], episode
+            conn,
+            lemma,
+            w["reading"],
+            w["romaji"],
+            info.get("gloss"),
+            w["pos"],
+            episode,
+            lang=args.lang,
         )
         dbm.record_sighting(conn, wid, ep_id, w["count"], replaced.get(lemma, 0))
         for inj in plan:  # matched-variant history
@@ -1237,6 +1252,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     pp.add_argument(
         "--episode", default=None, help="episode number (default: auto-parsed from filename)"
+    )
+    pp.add_argument(
+        "--lang",
+        default="ja",
+        help="language track to process (default ja). Other values are accepted "
+        "here but not yet supported end-to-end -- see issue #16.",
     )
     pp.add_argument(
         "--romaji",

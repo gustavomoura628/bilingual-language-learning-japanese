@@ -270,9 +270,9 @@ def backup(path: str | None = None, keep: int = 10) -> str | None:
     return dest
 
 
-def all_words(conn: sqlite3.Connection) -> dict[str, sqlite3.Row]:
-    """lemma -> row for every word in the DB."""
-    return {r["lemma"]: r for r in conn.execute("SELECT * FROM words")}
+def all_words(conn: sqlite3.Connection, lang: str = "ja") -> dict[str, sqlite3.Row]:
+    """lemma -> row for every word in the DB, scoped to one language."""
+    return {r["lemma"]: r for r in conn.execute("SELECT * FROM words WHERE lang=?", (lang,))}
 
 
 def add_episode(
@@ -327,17 +327,19 @@ def upsert_word(
     gloss: str | None,
     pos: str | None,
     episode_name: str,
+    lang: str = "ja",
 ) -> int | None:
-    row = conn.execute("SELECT id FROM words WHERE lemma=?", (lemma,)).fetchone()
+    row = conn.execute("SELECT id FROM words WHERE lemma=? AND lang=?", (lemma, lang)).fetchone()
     if row:
         if gloss:  # latest canonical gloss wins (sense-rotation may improve it)
             conn.execute("UPDATE words SET gloss=? WHERE id=?", (gloss, row["id"]))
         return row["id"]
     cur = conn.execute(
-        "INSERT INTO words (lemma, reading, romaji, gloss, pos, first_seen, added_at) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO words (lemma, lang, reading, romaji, gloss, pos, first_seen, added_at) "
+        "VALUES (?,?,?,?,?,?,?,?)",
         (
             lemma,
+            lang,
             reading,
             romaji,
             gloss,
@@ -403,13 +405,13 @@ def cache_put(
     )
 
 
-def set_status(conn: sqlite3.Connection, lemma: str, status: str) -> int:
-    cur = conn.execute("UPDATE words SET status=? WHERE lemma=?", (status, lemma))
+def set_status(conn: sqlite3.Connection, lemma: str, status: str, lang: str = "ja") -> int:
+    cur = conn.execute("UPDATE words SET status=? WHERE lemma=? AND lang=?", (status, lemma, lang))
     return cur.rowcount
 
 
-def set_note(conn: sqlite3.Connection, lemma: str, note: str | None) -> int:
+def set_note(conn: sqlite3.Connection, lemma: str, note: str | None, lang: str = "ja") -> int:
     """Set (or clear, with note=None) the operator's translator-note override
     for a word. Returns rowcount (0 = lemma not in DB)."""
-    cur = conn.execute("UPDATE words SET note=? WHERE lemma=?", (note, lemma))
+    cur = conn.execute("UPDATE words SET note=? WHERE lemma=? AND lang=?", (note, lemma, lang))
     return cur.rowcount
