@@ -1,5 +1,7 @@
 """SQLite word database."""
 
+from __future__ import annotations
+
 import os
 import re
 import sqlite3
@@ -68,7 +70,7 @@ CREATE TABLE IF NOT EXISTS align_cache (
 """
 
 
-def _migrate(conn):
+def _migrate(conn: sqlite3.Connection) -> None:
     """Add columns introduced after a DB was first created (SQLite CREATE
     IF NOT EXISTS won't alter existing tables)."""
     have = {r[1] for r in conn.execute("PRAGMA table_info(words)")}
@@ -95,7 +97,7 @@ def _migrate(conn):
         _backfill_learned(conn)
 
 
-def _backfill_episode_meta(conn):
+def _backfill_episode_meta(conn: sqlite3.Connection) -> None:
     """Parse an episode number out of each episode's filename that doesn't have
     one yet (e.g. e04.ja.srt -> "04"). Show is left for the operator to set."""
     for ep in conn.execute("SELECT id, name FROM episodes WHERE episode_no IS NULL"):
@@ -106,7 +108,7 @@ def _backfill_episode_meta(conn):
             conn.execute("UPDATE episodes SET episode_no=? WHERE id=?", (m.group(1), ep["id"]))
 
 
-def _backfill_learned(conn, threshold=10):
+def _backfill_learned(conn: sqlite3.Connection, threshold: int = 10) -> None:
     """One-time: replay the sightings history in episode order and stamp each
     word's learned_at at the episode where its cumulative injections first
     reached the (default) learning threshold."""
@@ -128,7 +130,7 @@ def _backfill_learned(conn, threshold=10):
                 break
 
 
-def connect(path=None):
+def connect(path: str | None = None) -> sqlite3.Connection:
     path = path or DEFAULT_DB
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     conn = sqlite3.connect(path)
@@ -139,13 +141,13 @@ def connect(path=None):
     return conn
 
 
-def clock(conn):
+def clock(conn: sqlite3.Connection) -> int:
     """Current global forgetting clock: total JA tokens of content processed
     so far (== position before the next file is added)."""
     return conn.execute("SELECT COALESCE(SUM(tokens),0) FROM episodes").fetchone()[0]
 
 
-def backup(path=None, keep=10):
+def backup(path: str | None = None, keep: int = 10) -> str | None:
     """Snapshot the DB file before a mutating run (the DB holds the user's
     learning history). Rotates the `keep` most recent snapshots
     in a backups/ dir next to the DB. No-op if the DB doesn't exist yet."""
@@ -165,12 +167,20 @@ def backup(path=None, keep=10):
     return dest
 
 
-def all_words(conn):
+def all_words(conn: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     """lemma -> row for every word in the DB."""
     return {r["lemma"]: r for r in conn.execute("SELECT * FROM words")}
 
 
-def add_episode(conn, name, new_words, replacements, tokens=0, show=None, episode_no=None):
+def add_episode(
+    conn: sqlite3.Connection,
+    name: str,
+    new_words: int,
+    replacements: int,
+    tokens: int = 0,
+    show: str | None = None,
+    episode_no: str | None = None,
+) -> int | None:
     cur = conn.execute(
         "INSERT INTO episodes (name, processed_at, new_words, replacements, "
         "tokens, show, episode_no) VALUES (?,?,?,?,?,?,?)",
@@ -187,7 +197,9 @@ def add_episode(conn, name, new_words, replacements, tokens=0, show=None, episod
     return cur.lastrowid
 
 
-def stamp_learned(conn, word_id, episode_name, threshold):
+def stamp_learned(
+    conn: sqlite3.Connection, word_id: int, episode_name: str, threshold: int
+) -> None:
     """Record when a word consolidates: the first time its lifetime exposures
     reach the learning threshold, stamp the episode it happened in. Idempotent -
     only stamps once (learned_at stays NULL until then)."""
@@ -199,12 +211,20 @@ def stamp_learned(conn, word_id, episode_name, threshold):
         )
 
 
-def touch_last_seen(conn, word_id, pos):
+def touch_last_seen(conn: sqlite3.Connection, word_id: int, pos: int) -> None:
     """Mark a word as last injected at clock position `pos` (recency tracking)."""
     conn.execute("UPDATE words SET last_seen_pos=? WHERE id=?", (pos, word_id))
 
 
-def upsert_word(conn, lemma, reading, romaji, gloss, pos, episode_name):
+def upsert_word(
+    conn: sqlite3.Connection,
+    lemma: str,
+    reading: str | None,
+    romaji: str | None,
+    gloss: str | None,
+    pos: str | None,
+    episode_name: str,
+) -> int | None:
     row = conn.execute("SELECT id FROM words WHERE lemma=?", (lemma,)).fetchone()
     if row:
         if gloss:  # latest canonical gloss wins (sense-rotation may improve it)
@@ -226,7 +246,9 @@ def upsert_word(conn, lemma, reading, romaji, gloss, pos, episode_name):
     return cur.lastrowid
 
 
-def record_sighting(conn, word_id, episode_id, occurrences, replacements):
+def record_sighting(
+    conn: sqlite3.Connection, word_id: int, episode_id: int, occurrences: int, replacements: int
+) -> None:
     conn.execute(
         "INSERT INTO sightings (word_id, episode_id, occurrences, replacements) "
         "VALUES (?,?,?,?) "
@@ -241,7 +263,7 @@ def record_sighting(conn, word_id, episode_id, occurrences, replacements):
     )
 
 
-def record_variant(conn, word_id, en_word):
+def record_variant(conn: sqlite3.Connection, word_id: int, en_word: str) -> None:
     """Remember which EN word an injection replaced (variant history)."""
     conn.execute(
         "INSERT INTO variants (word_id, en_word, count) VALUES (?,?,1) "
@@ -250,7 +272,7 @@ def record_variant(conn, word_id, en_word):
     )
 
 
-def word_variants(conn, word_id):
+def word_variants(conn: sqlite3.Connection, word_id: int) -> dict[str, int]:
     """en_word -> count from the variant history."""
     return {
         r["en_word"]: r["count"]
@@ -258,7 +280,9 @@ def word_variants(conn, word_id):
     }
 
 
-def cache_get(conn, ja_line, en_text, lemma):
+def cache_get(
+    conn: sqlite3.Connection, ja_line: str, en_text: str, lemma: str
+) -> sqlite3.Row | None:
     """Returns the cached row (en_word may be NULL = confirmed
     no-match) or None if this triple was never judged."""
     return conn.execute(
@@ -267,19 +291,21 @@ def cache_get(conn, ja_line, en_text, lemma):
     ).fetchone()
 
 
-def cache_put(conn, ja_line, en_text, lemma, en_word):
+def cache_put(
+    conn: sqlite3.Connection, ja_line: str, en_text: str, lemma: str, en_word: str | None
+) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO align_cache (ja_line, en_text, lemma, en_word) VALUES (?,?,?,?)",
         (ja_line, en_text, lemma, en_word),
     )
 
 
-def set_status(conn, lemma, status):
+def set_status(conn: sqlite3.Connection, lemma: str, status: str) -> int:
     cur = conn.execute("UPDATE words SET status=? WHERE lemma=?", (status, lemma))
     return cur.rowcount
 
 
-def set_note(conn, lemma, note):
+def set_note(conn: sqlite3.Connection, lemma: str, note: str | None) -> int:
     """Set (or clear, with note=None) the operator's translator-note override
     for a word. Returns rowcount (0 = lemma not in DB)."""
     cur = conn.execute("UPDATE words SET note=? WHERE lemma=?", (note, lemma))

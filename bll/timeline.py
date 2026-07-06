@@ -18,6 +18,8 @@ before the timeline existed, init() imports any labeled run-batch backups
 (`*.pre-eNN.db` / `*.post-eNN.db`) so earlier positions are seekable too.
 """
 
+from __future__ import annotations
+
 import glob
 import json
 import os
@@ -25,25 +27,26 @@ import re
 import shutil
 import sqlite3
 from datetime import datetime
+from typing import Any
 
 
-def _now():
+def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def tdir(db):
+def tdir(db: str) -> str:
     return os.path.abspath(db) + ".timeline"
 
 
-def _snaps_dir(db):
+def _snaps_dir(db: str) -> str:
     return os.path.join(tdir(db), "snaps")
 
 
-def _registry_path(db):
+def _registry_path(db: str) -> str:
     return os.path.join(tdir(db), "registry.json")
 
 
-def _episode_count(db):
+def _episode_count(db: str) -> int:
     if not os.path.exists(db):
         return 0
     c = sqlite3.connect(db)
@@ -55,7 +58,7 @@ def _episode_count(db):
         c.close()
 
 
-def _last_episode_name(db):
+def _last_episode_name(db: str) -> str | None:
     c = sqlite3.connect(db)
     try:
         r = c.execute("SELECT name FROM episodes ORDER BY id DESC LIMIT 1").fetchone()
@@ -66,7 +69,7 @@ def _last_episode_name(db):
         c.close()
 
 
-def _load(db):
+def _load(db: str) -> dict[str, Any]:
     p = _registry_path(db)
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
@@ -79,13 +82,20 @@ def _load(db):
     }  # each: {id, branch, position, episode, file, created}
 
 
-def _save(db, reg):
+def _save(db: str, reg: dict[str, Any]) -> None:
     os.makedirs(_snaps_dir(db), exist_ok=True)
     with open(_registry_path(db), "w", encoding="utf-8") as f:
         json.dump(reg, f, ensure_ascii=False, indent=1)
 
 
-def _take(db, reg, branch, position, episode, label=None):
+def _take(
+    db: str,
+    reg: dict[str, Any],
+    branch: str,
+    position: int,
+    episode: str | None,
+    label: str | None = None,
+) -> dict[str, Any]:
     """Copy the campaign DB into the snaps dir and append a registry record."""
     reg["seq"] += 1
     sid = reg["seq"]
@@ -105,7 +115,7 @@ def _take(db, reg, branch, position, episode, label=None):
     return rec
 
 
-def _import_backups(db, reg):
+def _import_backups(db: str, reg: dict[str, Any]) -> None:
     """Best-effort: register existing labeled run-batch backups as `main`
     snapshots so a pre-timeline campaign is still seekable. pre-eNN = state
     after episode N-1; post-eNN = state after episode N."""
@@ -139,7 +149,7 @@ def _import_backups(db, reg):
         have.add(("main", pos))
 
 
-def init(db):
+def init(db: str) -> dict[str, Any]:
     """Ensure a registry exists and the current head is snapshotted. Idempotent."""
     if not os.path.exists(db):
         return _load(db)
@@ -156,7 +166,7 @@ def init(db):
     return reg
 
 
-def record(db):
+def record(db: str) -> dict[str, Any]:
     """Snapshot the active branch's new head - call after each process."""
     reg = init(db)
     pos = _episode_count(db)
@@ -167,12 +177,12 @@ def record(db):
     return reg
 
 
-def _snap_at(reg, branch, position):
+def _snap_at(reg: dict[str, Any], branch: str, position: int) -> dict[str, Any] | None:
     cand = [s for s in reg["snaps"] if s["branch"] == branch and s["position"] == position]
     return cand[-1] if cand else None
 
 
-def snapshot_path(db, position):
+def snapshot_path(db: str, position: int | str) -> str | None:
     """Absolute path of the current branch's snapshot at `position` (the DB state
     as of that episode), or None. Used for read-only seek previews."""
     reg = init(db)
@@ -180,17 +190,17 @@ def snapshot_path(db, position):
     return os.path.join(_snaps_dir(db), s["file"]) if s else None
 
 
-def _head_snap(reg, branch):
+def _head_snap(reg: dict[str, Any], branch: str) -> dict[str, Any] | None:
     cand = [s for s in reg["snaps"] if s["branch"] == branch]
     return max(cand, key=lambda s: s["position"]) if cand else None
 
 
-def state(db):
+def state(db: str) -> dict[str, Any]:
     """Summary for the UI: branches (with head position + fork point) and which
     timeline positions on the current branch have a snapshot (are seekable)."""
     reg = init(db)
     cur = reg["current"]
-    branches = []
+    branches: list[dict[str, Any]] = []
     for bid, b in reg["branches"].items():
         head = _head_snap(reg, bid)
         branches.append(
@@ -208,7 +218,7 @@ def state(db):
     return {"current": cur, "branches": branches, "seekable": seekable}
 
 
-def branch(db, position, name):
+def branch(db: str, position: int, name: str) -> str:
     """Rewind to `position` on the current branch as a NEW branch and make it
     active. Requires a snapshot at that position. Returns the new branch id."""
     reg = init(db)
@@ -230,7 +240,7 @@ def branch(db, position, name):
     return bid
 
 
-def switch(db, branch_id):
+def switch(db: str, branch_id: str) -> dict[str, Any]:
     """Make another branch active (snapshots the current head first)."""
     reg = init(db)
     if branch_id not in reg["branches"]:

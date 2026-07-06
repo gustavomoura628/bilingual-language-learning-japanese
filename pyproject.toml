@@ -21,6 +21,7 @@ web = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.8",
+    "mypy>=1.13",
 ]
 
 [project.scripts]
@@ -42,3 +43,21 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["bll.db", "bll.timeline", "bll.gloss"]
+disallow_untyped_defs = true
+
+# Unannotated, out-of-scope modules that mypy now walks as a side effect of
+# checking bll/ at all. Neither carries any signature annotations (out of
+# scope per the design), so pre-existing patterns invisible to a
+# never-configured type checker surface here (e.g. untyped module-level
+# containers, old implicit-Optional defaults). Kept permissive rather than
+# hand-annotated, consistent with the design's "should mostly be
+# skipped/permissive" guidance for files this issue doesn't touch.
+[[tool.mypy.overrides]]
+module = ["bll.jmdict", "bll.web"]
+ignore_errors = true
