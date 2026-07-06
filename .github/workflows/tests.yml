@@ -21,7 +21,7 @@ jobs:
         uses: astral-sh/setup-uv@v8.2.0
 
       - name: Install package, runtime deps, and test tooling
-        run: uv sync --locked --dev
+        run: uv sync --locked --dev --extra web
 
       - name: Lint with ruff
         run: uv run ruff check .

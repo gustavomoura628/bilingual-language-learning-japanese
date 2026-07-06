@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bll · watch</title>
+<style>
+:root{
+  --ink:#14110E; --ink2:#1d1915; --ink3:#26211b;
+  --paper:#F5F2EA; --muted:#9b9489; --rule:#3A352E;
+  --amber:#E8A33D; --amber-dim:#7a5a23; --jade:#5B8C7B; --red:#d2674f;
+  --jp:system-ui,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  --mono:ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--jp);
+  font-weight:400;-webkit-font-smoothing:antialiased;line-height:1.45}
+button{font-family:var(--jp);cursor:pointer}
+input{font-family:var(--mono)}
+
+header{display:flex;align-items:baseline;padding:.9rem 1.4rem;
+  border-bottom:1px solid var(--rule);position:sticky;top:0;background:var(--ink);z-index:10}
+.brand{font-weight:900;font-size:1.25rem;letter-spacing:.02em}
+
+main{display:grid;grid-template-columns:1fr 320px;
+  grid-template-areas:"load load" "stage aside";gap:1rem;padding:1.2rem 1.4rem}
+@media (max-width:900px){
+  main{grid-template-columns:1fr;grid-template-areas:"load" "stage" "aside"}
+}
+
+.loadbar{grid-area:load;display:flex;gap:.5rem;flex-wrap:wrap}
+.loadbar input{flex:1;min-width:220px;background:var(--ink2);color:var(--paper);
+  border:1px solid var(--rule);border-radius:3px;padding:.5rem .6rem;font-size:.8rem}
+.loadbar input:focus{outline:none;border-color:var(--amber)}
+
+.btn{background:var(--ink3);color:var(--paper);border:1px solid var(--rule);
+  border-radius:3px;padding:.4rem .8rem;font-size:.78rem}
+.btn:hover{border-color:var(--muted)}
+.btn.go{background:var(--amber);color:var(--ink);border-color:var(--amber);font-weight:700}
+.btn.active{background:var(--jade);color:var(--ink);border-color:var(--jade);font-weight:700}
+
+.stage{grid-area:stage;display:flex;flex-direction:column;gap:.8rem;min-width:0}
+video{width:100%;max-height:70vh;background:#000;border-radius:6px;border:1px solid var(--rule)}
+#layer-switcher{display:flex;gap:.4rem;flex-wrap:wrap}
+
+aside{grid-area:aside;border-left:1px solid var(--rule);padding-left:1.1rem;overflow:auto}
+
+.wrow{display:flex;align-items:center;gap:.5rem;padding:.45rem 0;
+  border-bottom:1px solid var(--rule);font-size:.86rem}
+.wrow ruby{font-size:1rem}
+.wrow ruby rt{color:var(--amber);font-size:.55em}
+.wrow .gloss{flex:1;color:var(--muted);font-size:.76rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.wrow .badge{font-family:var(--mono);font-size:.62rem;color:var(--muted);
+  border:1px solid var(--rule);border-radius:3px;padding:.1rem .4rem}
+.wrow.learning .badge{color:var(--amber);border-color:var(--amber-dim)}
+.wrow.known .badge{color:var(--jade);border-color:var(--jade)}
+</style>
+</head>
+<body>
+<header><span class="brand">bll · watch</span></header>
+<main>
+  <div class="loadbar">
+    <input type="text" id="video_path" placeholder="/abs/path/to/episode.mp4">
+    <input type="text" id="subs_path" placeholder="/abs/path/to/out.srt (adaptive layer)">
+    <button class="btn go" onclick="loadEpisode()">Load</button>
+  </div>
+  <div class="stage">
+    <video id="player" controls></video>
+    <div id="layer-switcher"></div>
+  </div>
+  <aside>
+    <div id="words-panel"></div>
+  </aside>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+async function api(path){const r=await fetch(path);if(!r.ok)throw new Error(await r.text());return r.json();}
+
+async function loadEpisode(){
+  const videoPath=$("video_path").value.trim(), subsPath=$("subs_path").value.trim();
+  if(!videoPath||!subsPath) return;
+  const player=$("player");
+  player.querySelectorAll("track").forEach(t=>t.remove());
+  player.src="/api/video?path="+encodeURIComponent(videoPath);
+
+  const data=await api("/api/layers?path="+encodeURIComponent(subsPath));
+  const sw=$("layer-switcher"); sw.innerHTML=""; let first=null;
+  for(const [name,info] of Object.entries(data.layers)){
+    if(!info.exists) continue;
+    const track=document.createElement("track");
+    track.kind="subtitles"; track.label=name; track.srclang="ja";
+    track.src="/api/vtt?path="+encodeURIComponent(info.path);
+    player.appendChild(track);
+    const btn=document.createElement("button");
+    btn.className="btn"; btn.textContent=name; btn.onclick=()=>selectLayer(name);
+    sw.appendChild(btn);
+    if(!first) first=name;
+  }
+  player.load();
+  if(first) player.addEventListener("loadedmetadata",()=>selectLayer(first),{once:true});
+}
+function selectLayer(name){
+  const tt=$("player").textTracks;
+  for(let i=0;i<tt.length;i++) tt[i].mode = tt[i].label===name ? "showing" : "hidden";
+  $("layer-switcher").querySelectorAll("button").forEach(b=>
+    b.classList.toggle("active", b.textContent===name));
+}
+
+async function loadWords(){
+  const data=await api("/api/words?lang=ja");
+  const el=$("words-panel"); el.innerHTML="";
+  data.words.forEach(w=>{
+    const row=document.createElement("div");
+    row.className="wrow "+w.status;
+    row.innerHTML=`<ruby>${w.lemma}<rt>${w.reading||""}</rt></ruby>`+
+      `<span class="gloss">${w.gloss||""}</span><span class="badge">${w.status}</span>`;
+    el.appendChild(row);
+  });
+}
+loadWords();
+</script>
+</body>
+</html>
