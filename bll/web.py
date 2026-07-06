@@ -13,6 +13,7 @@ Run:  bll serve   (see cli.cmd_serve)
 
 import glob
 import json
+import mimetypes
 import os
 import subprocess
 import sys
@@ -20,8 +21,9 @@ import threading
 import time
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+import pysubs2
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from . import bootstrap as bootstrapm
 from . import db as dbm
@@ -158,6 +160,12 @@ app = FastAPI(title="bll operator console")
 @app.get("/", response_class=HTMLResponse)
 def index():
     with open(os.path.join(STATIC, "index.html"), encoding="utf-8") as f:
+        return f.read()
+
+
+@app.get("/watch", response_class=HTMLResponse)
+def watch():
+    with open(os.path.join(STATIC, "watch.html"), encoding="utf-8") as f:
         return f.read()
 
 
@@ -387,6 +395,116 @@ def browse(dir: str = None):
     except PermissionError:
         raise HTTPException(403, f"permission denied: {d}") from None
     return {"dir": d, "parent": os.path.dirname(d), "dirs": dirs, "subs": subs}
+
+
+def _parse_range(range_header: str, size: int) -> tuple[int, int] | None:
+    """Parse a single-range 'bytes=start-end' Range header value.
+
+    Supports 'bytes=start-end', 'bytes=start-' (open-ended), and the suffix
+    form 'bytes=-N' (last N bytes). Multi-range specs are rejected (only the
+    first range is considered -- <video> elements never send multi-range).
+    Returns an inclusive (start, end) clamped to `size`, or None if the
+    header is malformed or unsatisfiable.
+    """
+    if not range_header.startswith("bytes="):
+        return None
+    spec = range_header[len("bytes=") :].split(",")[0].strip()
+    if "-" not in spec:
+        return None
+    start_s, end_s = spec.split("-", 1)
+    try:
+        if start_s == "":
+            n = int(end_s)
+            if n <= 0:
+                return None
+            start, end = max(0, size - n), size - 1
+        else:
+            start = int(start_s)
+            end = int(end_s) if end_s else size - 1
+    except ValueError:
+        return None
+    if start > end or start >= size or start < 0:
+        return None
+    return start, min(end, size - 1)
+
+
+CHUNK = 1 << 20  # 1 MiB read/yield size
+
+
+@app.get("/api/video")
+def video(path: str, request: Request):
+    p = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isfile(p):
+        raise HTTPException(400, f"not a file: {p}")
+    try:
+        size = os.path.getsize(p)
+    except PermissionError:
+        raise HTTPException(403, f"permission denied: {p}") from None
+    media_type = mimetypes.guess_type(p)[0] or "application/octet-stream"
+
+    range_header = request.headers.get("range")
+    if range_header:
+        parsed = _parse_range(range_header, size)
+        if parsed is None:
+            raise HTTPException(416, "invalid or unsatisfiable range")
+        start, end = parsed
+        length = end - start + 1
+
+        def iter_range():
+            with open(p, "rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(CHUNK, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(length),
+        }
+        return StreamingResponse(
+            iter_range(), status_code=206, headers=headers, media_type=media_type
+        )
+
+    def iter_full():
+        with open(p, "rb") as f:
+            while True:
+                chunk = f.read(CHUNK)
+                if not chunk:
+                    break
+                yield chunk
+
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(size)}
+    return StreamingResponse(iter_full(), headers=headers, media_type=media_type)
+
+
+@app.get("/api/vtt")
+def vtt(path: str):
+    p = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isfile(p):
+        raise HTTPException(400, f"not a file: {p}")
+    try:
+        subs = pysubs2.load(p)
+    except PermissionError:
+        raise HTTPException(403, f"permission denied: {p}") from None
+    except Exception as e:  # noqa: BLE001 -- any pysubs2 parse failure is a 400, not a 500
+        raise HTTPException(400, f"could not parse subtitle file: {e}") from e
+    return Response(content=subs.to_string("vtt"), media_type="text/vtt; charset=utf-8")
+
+
+@app.get("/api/layers")
+def layers(path: str):
+    from .cli import layer_paths  # deferred: keep cli.py's NLP-stack import off web.py's path
+
+    resolved = os.path.abspath(os.path.expanduser(path))
+    paths = layer_paths(resolved)
+    out = {name: {"path": p, "exists": os.path.isfile(p)} for name, p in paths.items()}
+    plan_path = os.path.splitext(paths["adaptive"])[0] + ".plan.json"  # cli.py's own formula
+    return {"layers": out, "plan": {"path": plan_path, "exists": os.path.isfile(plan_path)}}
 
 
 def _knob_args(body):
